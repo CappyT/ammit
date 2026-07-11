@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "YTM AI-Ban",
+  "version": "0.2.0",
+  "description": "Dislike/skip AI-generated songs on YouTube Music and skip/ban them on Spotify",
+  "permissions": ["storage", "alarms", "declarativeNetRequest"],
+  "host_permissions": [
+    "https://music.youtube.com/*",
+    "https://open.spotify.com/*",
+    "https://spclient.wg.spotify.com/*",
+    "https://musicbrainz.org/*",
+    "https://raw.githubusercontent.com/*",
+    "https://gist.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["src/heuristics.js", "src/content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://open.spotify.com/*"],
+      "js": ["src/spotify-main.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://open.spotify.com/*"],
+      "js": ["src/heuristics.js", "src/spotify-content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["data/blocklist.json"],
+      "matches": ["https://music.youtube.com/*"]
+    }
+  ],
+  "action": {
+    "default_title": "YTM AI-Ban",
+    "default_popup": "popup.html"
+  }
+}

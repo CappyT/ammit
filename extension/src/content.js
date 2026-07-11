@@ -1,0 +1,285 @@
+// YTM AI-Ban content script.
+// Watches the player bar for track changes; when the current artist matches
+// the blocklist (or the heuristic scorer says AI), dislikes the track and
+// skips to the next one.
+//
+// Selectors verified live on music.youtube.com (2026-07, player bar DOM):
+// - artist links:   .byline a[href^="channel/"]  (multiple for collabs)
+// - dislike:        #button-shape-dislike button
+// - like state:     ytmusic-like-button-renderer[like-status] = INDIFFERENT|LIKE|DISLIKE
+// - next:           .next-button button
+// aria-labels are localized — never match on them.
+//
+// The player bar has no readable track identity (videoId lives in Polymer
+// props, main world only), so every action is transactional on DOM reads:
+// act only on a track observed stable across two reads, and re-verify the
+// track right before clicking dislike and again before skipping. Otherwise a
+// mid-transition read (or an async verdict landing after a natural track
+// change) would dislike the wrong, innocent song.
+
+const TAG = '[ytm-aiban]';
+const STABILITY_MS = 250; // two identical reads this far apart = not mid-transition
+const SKIP_DELAY_MS = 400; // let the dislike request fire before navigating away
+
+const SEL = {
+  playerBar: 'ytmusic-player-bar',
+  title: 'ytmusic-player-bar .title',
+  byline: 'ytmusic-player-bar .byline',
+  likeRenderer: 'ytmusic-player-bar ytmusic-like-button-renderer',
+  dislike: 'ytmusic-player-bar #button-shape-dislike button',
+  next: 'ytmusic-player-bar .next-button button',
+};
+
+let state = {
+  enabled: true,
+  whitelist: { channelIds: [], names: [] },
+  byChannelId: new Map(),
+  byName: new Map(),
+  verdictCache: {},
+  inflight: new Set(),
+  lastTrackKey: null,
+};
+
+const norm = (s) => (s || '').trim().toLowerCase();
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const trackKey = (t) => `${t.artists.map((a) => a.channelId ?? a.name).join(',')}::${t.title}`;
+
+function buildIndex(blocklist, userBlocklist) {
+  state.byChannelId = new Map();
+  state.byName = new Map();
+  for (const entry of [...(blocklist?.artists ?? []), ...(userBlocklist?.artists ?? [])]) {
+    if (entry.channelId) state.byChannelId.set(entry.channelId, entry);
+    if (entry.name) state.byName.set(norm(entry.name), entry);
+  }
+  console.log(TAG, 'index built:', state.byChannelId.size, 'channel ids,', state.byName.size, 'names');
+}
+
+function getCurrentTrack() {
+  const title = document.querySelector(SEL.title)?.textContent?.trim();
+  if (!title) return null;
+
+  const byline = document.querySelector(SEL.byline);
+  const artists = [...(byline?.querySelectorAll('a[href^="channel/"]') ?? [])].map((a) => ({
+    name: a.textContent.trim(),
+    channelId: a.getAttribute('href').match(/channel\/(UC[\w-]+)/)?.[1] ?? null,
+  }));
+
+  // Fallback for tracks whose byline has no channel links (e.g. uploads).
+  if (artists.length === 0 && byline) {
+    const name = byline.textContent.split('•')[0]?.trim();
+    if (name) artists.push({ name, channelId: null });
+  }
+
+  return { title, artists };
+}
+
+function isWhitelisted({ name, channelId }) {
+  return (
+    (channelId && state.whitelist.channelIds.includes(channelId)) ||
+    state.whitelist.names.some((n) => norm(n) === norm(name))
+  );
+}
+
+function matchBlocklist({ name, channelId }) {
+  return (channelId && state.byChannelId.get(channelId)) || state.byName.get(norm(name)) || null;
+}
+
+function verdict(track) {
+  for (const artist of track.artists) {
+    if (isWhitelisted(artist)) continue;
+    const hit = matchBlocklist(artist);
+    if (hit) return { blocked: true, artist, entry: hit };
+  }
+  return { blocked: false };
+}
+
+function clickDislike() {
+  const renderer = document.querySelector(SEL.likeRenderer);
+  if (renderer?.getAttribute('like-status') === 'DISLIKE') return true; // already disliked
+  const btn = document.querySelector(SEL.dislike);
+  if (!btn) {
+    console.warn(TAG, 'dislike button not found');
+    return false;
+  }
+  btn.click();
+  return true;
+}
+
+function clickNext() {
+  const btn = document.querySelector(SEL.next);
+  if (!btn) {
+    console.warn(TAG, 'next button not found');
+    return false;
+  }
+  btn.click();
+  return true;
+}
+
+function toast(msg) {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  Object.assign(el.style, {
+    position: 'fixed',
+    bottom: '90px',
+    right: '16px',
+    zIndex: 99999,
+    background: '#b00020',
+    color: '#fff',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    font: '13px Roboto, sans-serif',
+    boxShadow: '0 2px 8px rgba(0,0,0,.5)',
+  });
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+// Dislike + delayed skip, both gated on the player bar still showing the
+// condemned track. If the track changed in the meantime (natural end, user
+// action, async verdict landing late), do nothing — never touch an innocent song.
+function nuke(label, expectedKey) {
+  const now = getCurrentTrack();
+  if (!now || trackKey(now) !== expectedKey) {
+    console.warn(TAG, 'nuke aborted — track changed before dislike');
+    return;
+  }
+  const disliked = clickDislike();
+  setTimeout(() => {
+    const after = getCurrentTrack();
+    if (!after || trackKey(after) !== expectedKey) {
+      console.log(TAG, 'skip skipped — track already changed');
+      return;
+    }
+    const skipped = clickNext();
+    toast(`${label} ${disliked && skipped ? 'disliked & skipped' : '(action failed, see console)'}`);
+  }, SKIP_DELAY_MS);
+}
+
+let evaluating = false;
+async function onPossibleTrackChange() {
+  if (!state.enabled || evaluating) return;
+  const t1 = getCurrentTrack();
+  if (!t1) return;
+  const key = trackKey(t1);
+  if (key === state.lastTrackKey) return;
+
+  evaluating = true;
+  try {
+    // Require a second identical read: mid-transition the title and byline
+    // update at different times and a mixed read blames the wrong artist.
+    await sleep(STABILITY_MS);
+    const t2 = getCurrentTrack();
+    if (!t2 || trackKey(t2) !== key) return; // unstable — the next mutation retries
+    state.lastTrackKey = key;
+
+    const likeStatus = document.querySelector(SEL.likeRenderer)?.getAttribute('like-status');
+    console.log(TAG, 'now playing:', JSON.stringify(t2), 'like-status:', likeStatus);
+
+    const v = verdict(t2);
+    if (v.blocked) {
+      console.log(TAG, 'BLOCKED artist:', v.artist.name, '→ dislike + skip');
+      nuke(`AI-Ban: "${v.artist.name}"`, key);
+      return;
+    }
+
+    // Unknown artist → heuristic scorer (async; nuke() re-verifies the track).
+    const primary = t2.artists.find((a) => a.channelId);
+    if (primary && !isWhitelisted(primary)) evaluateArtist(primary, key);
+  } finally {
+    evaluating = false;
+  }
+}
+
+async function evaluateArtist(artist, expectedKey) {
+  const cid = artist.channelId;
+  const cached = state.verdictCache[cid];
+  if (cached) {
+    if (cached.verdict === 'ai') {
+      console.log(TAG, 'HEURISTIC block (cached):', artist.name, 'score', cached.score);
+      nuke(`AI-Ban (heuristic ${cached.score}): "${artist.name}"`, expectedKey);
+    }
+    return;
+  }
+  if (state.inflight.has(cid)) return;
+  state.inflight.add(cid);
+  try {
+    const features = await ytmAiban.extractFeatures(cid);
+    features.mbPresent = await chrome.runtime.sendMessage({
+      type: 'mb-lookup',
+      name: features.name ?? artist.name,
+    });
+    const res = ytmAiban.scoreFeatures(features);
+    const entry = { verdict: res.verdict, score: res.score, reasons: res.reasons, name: features.name, ts: Date.now() };
+    console.log(TAG, 'heuristic verdict:', artist.name, JSON.stringify(res));
+
+    state.verdictCache[cid] = entry;
+    // Persist through the background service worker (single serialized writer)
+    // so concurrent writes from other tabs don't clobber the cache.
+    chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
+
+    if (entry.verdict === 'ai') {
+      console.log(TAG, 'HEURISTIC block:', artist.name, 'score', entry.score);
+      nuke(`AI-Ban (heuristic ${entry.score}): "${artist.name}"`, expectedKey);
+    }
+  } catch (e) {
+    console.warn(TAG, 'heuristic failed for', artist.name, String(e));
+  } finally {
+    state.inflight.delete(cid);
+  }
+}
+
+async function loadState() {
+  const data = await chrome.storage.local.get(['enabled', 'blocklist', 'userBlocklist', 'whitelist', 'verdictCache']);
+  state.enabled = data.enabled ?? true;
+  state.whitelist = data.whitelist ?? { channelIds: [], names: [] };
+  state.verdictCache = data.verdictCache ?? {};
+  buildIndex(data.blocklist, data.userBlocklist);
+  console.log(TAG, 'enabled =', state.enabled);
+}
+
+// Popup asks for the current track + verdict via tabs.sendMessage.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type !== 'get-current') return;
+  const track = getCurrentTrack();
+  const primary = track?.artists?.find((a) => a.channelId) ?? track?.artists?.[0] ?? null;
+  let verdictInfo = null;
+  if (primary) {
+    if (isWhitelisted(primary)) verdictInfo = { verdict: 'whitelisted' };
+    else if (matchBlocklist(primary)) verdictInfo = { verdict: 'blocklist' };
+    else if (primary.channelId && state.verdictCache[primary.channelId]) verdictInfo = state.verdictCache[primary.channelId];
+  }
+  sendResponse({ track, primary, verdictInfo });
+});
+
+chrome.storage.onChanged.addListener(async (changes, area) => {
+  if (area !== 'local') return;
+  if (changes.whitelist) state.whitelist = changes.whitelist.newValue;
+  if (changes.enabled) state.enabled = changes.enabled.newValue;
+  if (changes.verdictCache) state.verdictCache = changes.verdictCache.newValue ?? {};
+  if (changes.blocklist || changes.userBlocklist) {
+    const data = await chrome.storage.local.get(['blocklist', 'userBlocklist']);
+    buildIndex(data.blocklist, data.userBlocklist);
+  }
+  // Re-evaluate the current track only when the rules changed — NOT on our own
+  // verdictCache/mbCache writes, which land at racy moments (mid-transition).
+  if (changes.blocklist || changes.userBlocklist || changes.whitelist || changes.enabled) {
+    state.lastTrackKey = null;
+    onPossibleTrackChange();
+  }
+});
+
+function main() {
+  loadState().then(() => {
+    const observer = new MutationObserver(() => onPossibleTrackChange());
+    const waitForBar = setInterval(() => {
+      const bar = document.querySelector(SEL.playerBar);
+      if (!bar) return;
+      clearInterval(waitForBar);
+      observer.observe(bar, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['like-status'] });
+      console.log(TAG, 'player bar observer attached');
+      onPossibleTrackChange();
+    }, 500);
+  });
+}
+
+main();

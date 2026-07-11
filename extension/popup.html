@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 300px; margin: 0; padding: 12px; background: #121212; color: #eee;
+           font: 13px Roboto, system-ui, sans-serif; }
+    h1 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
+    .row { margin: 8px 0; }
+    .muted { color: #999; font-size: 12px; }
+    #current { padding: 8px; background: #1e1e1e; border-radius: 6px; min-height: 34px; }
+    #current .artist { font-weight: 600; }
+    .verdict { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; }
+    .verdict.ai, .verdict.blocklist { background: #b00020; }
+    .verdict.human, .verdict.whitelisted { background: #1b5e20; }
+    .verdict.unsure { background: #7a5c00; }
+    button { background: #2d2d2d; color: #eee; border: 1px solid #444; border-radius: 6px;
+             padding: 6px 10px; cursor: pointer; margin-right: 6px; }
+    button:hover { background: #3a3a3a; }
+    button:disabled { opacity: .4; cursor: default; }
+    #block { border-color: #b00020; }
+    #whitelist { border-color: #1b5e20; }
+    input[type=checkbox] { transform: scale(1.2); }
+  </style>
+</head>
+<body>
+  <h1>YTM AI-Ban <input type="checkbox" id="enabled" title="enable/disable"></h1>
+  <div id="current" class="row">loading…</div>
+  <div class="row">
+    <button id="block" disabled>Block artist</button>
+    <button id="whitelist" disabled>Whitelist</button>
+  </div>
+  <div id="stats" class="row muted"></div>
+  <div class="row">
+    <button id="sync">Sync blocklist</button>
+    <span id="sync-info" class="muted"></span>
+  </div>
+  <div class="row">
+    <input id="sync-url" type="text" placeholder="remote blocklist URL (raw JSON)"
+           style="width: 100%; box-sizing: border-box; background: #1e1e1e; color: #eee;
+                  border: 1px solid #444; border-radius: 6px; padding: 5px;">
+  </div>
+  <script src="src/popup.js"></script>
+</body>
+</html>
