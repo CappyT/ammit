@@ -123,15 +123,17 @@ function toast(msg) {
   el.textContent = msg;
   Object.assign(el.style, {
     position: 'fixed',
-    bottom: '90px',
-    right: '16px',
+    bottom: '92px',
+    right: '60px', // clear of the Ammit widget button
     zIndex: 99999,
-    background: '#b00020',
-    color: '#fff',
-    padding: '10px 14px',
-    borderRadius: '8px',
-    font: '13px Roboto, sans-serif',
-    boxShadow: '0 2px 8px rgba(0,0,0,.5)',
+    background: '#1b1b1e',
+    color: '#ececf0',
+    border: '1px solid #2c2c30',
+    borderLeft: '3px solid #d4a017',
+    padding: '9px 13px',
+    borderRadius: '10px',
+    font: '13px system-ui, sans-serif',
+    boxShadow: '0 6px 22px rgba(0,0,0,.5)',
   });
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 4000);
@@ -141,7 +143,7 @@ function toast(msg) {
 // player bar still showing the condemned track. If the track changed in the
 // meantime (natural end, user action, async verdict landing late), do nothing —
 // never touch an innocent song.
-function nuke(label, expectedKey) {
+function nuke(artistName, expectedKey) {
   const now = getCurrentTrack();
   if (!now || trackKey(now) !== expectedKey) {
     console.warn(TAG, 'nuke aborted — track changed before dislike');
@@ -155,7 +157,7 @@ function nuke(label, expectedKey) {
   }
   if (!state.actionFull) {
     const skipped = clickNext();
-    toast(`${label} ${skipped ? 'skipped' : '(skip failed, see console)'}`);
+    toast(skipped ? chrome.i18n.getMessage('toastSkipped', [artistName]) : chrome.i18n.getMessage('toastFailed'));
     return;
   }
   const disliked = clickDislike();
@@ -166,7 +168,7 @@ function nuke(label, expectedKey) {
       return;
     }
     const skipped = clickNext();
-    toast(`${label} ${disliked && skipped ? 'disliked & skipped' : '(action failed, see console)'}`);
+    toast(disliked && skipped ? chrome.i18n.getMessage('toastDevoured', [artistName]) : chrome.i18n.getMessage('toastFailed'));
   }, SKIP_DELAY_MS);
 }
 
@@ -193,13 +195,15 @@ async function onPossibleTrackChange() {
     const v = verdict(t2);
     if (v.blocked) {
       console.log(TAG, 'BLOCKED artist:', v.artist.name, '→', state.actionFull ? 'dislike + skip' : 'skip');
-      nuke(`Ammit: "${v.artist.name}"`, key);
+      refreshWidget();
+      nuke(v.artist.name, key);
       return;
     }
 
     // Unknown artist → heuristic scorer (async; nuke() re-verifies the track).
     const primary = t2.artists.find((a) => a.channelId);
     if (primary && !isWhitelisted(primary)) evaluateArtist(primary, key);
+    refreshWidget();
   } finally {
     evaluating = false;
   }
@@ -216,10 +220,10 @@ const cachedVerdict = (entry) =>
 function actOnAiVerdict(artist, res, expectedKey, fresh) {
   if (state.heuristicAuto) {
     console.log(TAG, 'HEURISTIC block:', artist.name, 'score', res.score);
-    nuke(`Ammit (heuristic ${res.score}): "${artist.name}"`, expectedKey);
+    nuke(artist.name, expectedKey);
   } else if (fresh) {
-    // Blocklist-first default: flag once, let the user confirm from the popup.
-    toast(`Ammit: "${artist.name}" looks AI (score ${res.score}) — confirm in the popup`);
+    // Blocklist-first default: flag once, let the user confirm from the badge/popup.
+    toast(chrome.i18n.getMessage('toastSuspect', [artist.name, String(res.score)]));
   }
 }
 
@@ -247,12 +251,67 @@ async function evaluateArtist(artist, expectedKey) {
     // so concurrent writes from other tabs don't clobber the cache.
     chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
 
+    refreshWidget();
     if (res.verdict === 'ai') actOnAiVerdict(artist, res, expectedKey, true);
   } catch (e) {
     console.warn(TAG, 'heuristic failed for', artist.name, String(e));
   } finally {
     state.inflight.delete(cid);
   }
+}
+
+// --- on-page widget (src/widget.js, loaded before this file) ---
+const primaryArtist = () => {
+  const track = getCurrentTrack();
+  return track?.artists?.find((a) => a.channelId) ?? track?.artists?.[0] ?? null;
+};
+
+function refreshWidget() {
+  const p = primaryArtist();
+  let verdict = 'pending', score = null;
+  if (!state.enabled) verdict = 'disabled';
+  else if (p) {
+    if (isWhitelisted(p)) verdict = 'whitelisted';
+    else if (matchBlocklist(p)) verdict = 'blocklist';
+    else if (p.channelId) {
+      const res = cachedVerdict(state.verdictCache[p.channelId]);
+      if (res) { verdict = res.verdict; score = res.score; }
+    }
+  }
+  ammitWidget.update({ artist: p?.name ?? null, verdict, score });
+}
+
+const widgetEvidence = (p) => {
+  const e = p.channelId ? state.verdictCache[p.channelId] : null;
+  return e?.features ? { evidence: { fv: e.fv, features: e.features } } : {};
+};
+
+async function widgetBlock() {
+  const p = primaryArtist();
+  if (!p) return;
+  const { userBlocklist = { artists: [] } } = await chrome.storage.local.get('userBlocklist');
+  userBlocklist.artists.push({ name: p.name, channelId: p.channelId ?? null, spotifyId: null, confidence: 'confirmed', source: 'user' });
+  await chrome.storage.local.set({ userBlocklist });
+  if (p.channelId) {
+    chrome.runtime.sendMessage({
+      type: 'submit-report',
+      payload: { platform: 'yt', artistId: p.channelId, name: p.name, action: 'report', ...widgetEvidence(p) },
+    });
+  }
+}
+
+async function widgetNotAi() {
+  const p = primaryArtist();
+  if (!p) return;
+  const data = await chrome.storage.local.get(['whitelist', 'verdictCache']);
+  const whitelist = { channelIds: [], names: [], spotifyIds: [], ...(data.whitelist ?? {}) };
+  if (p.channelId && !whitelist.channelIds.includes(p.channelId)) whitelist.channelIds.push(p.channelId);
+  if (p.name && !whitelist.names.includes(p.name)) whitelist.names.push(p.name);
+  const verdictCache = data.verdictCache ?? {};
+  const report = p.channelId ? { platform: 'yt', artistId: p.channelId, name: p.name, action: 'not_ai', ...widgetEvidence(p) } : null;
+  if (p.channelId) delete verdictCache[p.channelId];
+  await chrome.storage.local.set({ whitelist, verdictCache });
+  if (report) chrome.runtime.sendMessage({ type: 'submit-report', payload: report });
 }
 
 async function loadState() {
@@ -302,10 +361,12 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     state.lastTrackKey = null;
     onPossibleTrackChange();
   }
+  refreshWidget();
 });
 
 function main() {
   loadState().then(() => {
+    ammitWidget.init({ bottom: '84px', onBlock: widgetBlock, onNotAi: widgetNotAi });
     const observer = new MutationObserver(() => onPossibleTrackChange());
     const waitForBar = setInterval(() => {
       const bar = document.querySelector(SEL.playerBar);
@@ -314,6 +375,7 @@ function main() {
       observer.observe(bar, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['like-status'] });
       console.log(TAG, 'player bar observer attached');
       onPossibleTrackChange();
+      refreshWidget();
     }, 500);
   });
 }

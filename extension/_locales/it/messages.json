@@ -1,0 +1,57 @@
+{
+  "appName": { "message": "Ammit" },
+  "appDesc": { "message": "Ammit divora la musica generata dall'AI: salta (e opzionalmente mette dislike o banna) gli artisti AI su YouTube Music e Spotify." },
+
+  "nowPlaying": { "message": "In riproduzione" },
+  "noTrack": { "message": "Nessuna riproduzione — apri YouTube Music o Spotify" },
+  "blockArtist": { "message": "Blocca artista" },
+  "notAi": { "message": "Non è AI" },
+  "reviewTitle": { "message": "Da confermare" },
+  "enableTitle": { "message": "Attiva / disattiva Ammit" },
+
+  "settings": { "message": "Impostazioni" },
+  "back": { "message": "Indietro" },
+  "protectionSection": { "message": "Protezione" },
+  "communitySection": { "message": "Community" },
+  "threshold": { "message": "Sensibilità euristica" },
+  "thresholdHint": { "message": "Più bassa = più severa: più blocchi, più falsi positivi" },
+  "autoBlock": { "message": "Blocco automatico (euristica)" },
+  "autoBlockHint": { "message": "Off: i sospetti compaiono solo qui per conferma" },
+  "fullAction": { "message": "Azione completa (dislike / ban)" },
+  "fullActionHint": { "message": "Off: i brani bloccati vengono solo saltati" },
+  "contribute": { "message": "Invia segnalazioni anonime" },
+  "contributeHint": { "message": "Solo id artista e punteggio, id installazione casuale" },
+  "reportUrlPh": { "message": "URL API segnalazioni (…/v1/reports)" },
+  "syncUrlPh": { "message": "URL blocklist remota (raw JSON)" },
+  "syncNow": { "message": "Sincronizza" },
+  "lastSync": { "message": "ultimo sync: $TIME$", "placeholders": { "time": { "content": "$1" } } },
+  "neverSynced": { "message": "mai sincronizzata" },
+  "noSyncUrl": { "message": "nessun URL di sync" },
+  "syncing": { "message": "sincronizzo…" },
+  "syncOk": { "message": "sincronizzati $COUNT$ artisti", "placeholders": { "count": { "content": "$1" } } },
+  "syncFail": { "message": "sync fallito: $REASON$", "placeholders": { "reason": { "content": "$1" } } },
+  "statsLine": {
+    "message": "$BLOCKED$ artisti bloccati · $VERDICTS$ verdetti ($AI$ AI)",
+    "placeholders": {
+      "blocked": { "content": "$1" },
+      "verdicts": { "content": "$2" },
+      "ai": { "content": "$3" }
+    }
+  },
+
+  "verdict_ai": { "message": "AI" },
+  "verdict_unsure": { "message": "incerto" },
+  "verdict_human": { "message": "umano" },
+  "verdict_blocklist": { "message": "bloccato" },
+  "verdict_whitelisted": { "message": "in whitelist" },
+  "verdict_pending": { "message": "valuto…" },
+  "verdict_disabled": { "message": "in pausa" },
+
+  "toastSkipped": { "message": "Ammit ha saltato “$NAME$”", "placeholders": { "name": { "content": "$1" } } },
+  "toastDevoured": { "message": "Ammit ha divorato “$NAME$”", "placeholders": { "name": { "content": "$1" } } },
+  "toastSuspect": {
+    "message": "“$NAME$” sembra AI (punteggio $SCORE$) — conferma dal badge",
+    "placeholders": { "name": { "content": "$1" }, "score": { "content": "$2" } }
+  },
+  "toastFailed": { "message": "Ammit: azione fallita, vedi console" }
+}

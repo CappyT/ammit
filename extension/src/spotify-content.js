@@ -118,9 +118,11 @@ function toast(msg) {
   const el = document.createElement('div');
   el.textContent = msg;
   Object.assign(el.style, {
-    position: 'fixed', bottom: '96px', left: '50%', transform: 'translateX(-50%)',
-    zIndex: 99999, background: '#b00020', color: '#fff', padding: '10px 14px',
-    borderRadius: '8px', font: '13px system-ui, sans-serif', boxShadow: '0 2px 8px rgba(0,0,0,.5)',
+    position: 'fixed', bottom: '104px', left: '50%', transform: 'translateX(-50%)',
+    zIndex: 99999, background: '#1b1b1e', color: '#ececf0',
+    border: '1px solid #2c2c30', borderLeft: '3px solid #d4a017',
+    padding: '9px 13px', borderRadius: '10px', font: '13px system-ui, sans-serif',
+    boxShadow: '0 6px 22px rgba(0,0,0,.5)',
   });
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 4000);
@@ -140,6 +142,7 @@ async function onChange() {
 
   const blocked = blockedArtists(cur);
   if (blocked.length) {
+    refreshWidget();
     await nuke(blocked, cur.trackId);
     return;
   }
@@ -148,6 +151,7 @@ async function onChange() {
   for (const a of cur.artists) {
     if (a.spotifyId && !isWhitelisted(a)) evaluateArtist(a, cur.trackId);
   }
+  refreshWidget();
 }
 
 // Skip the current track and — with actionFull opted in — ban each target
@@ -183,8 +187,8 @@ async function nuke(targets, trackId) {
     }
   }
   console.log(TAG, 'result:', JSON.stringify({ skipped, bans }));
-  const banNote = bans.length ? (bans.every((b) => b.ok) ? ' & banned' : ' (ban failed)') : '';
-  toast(`Ammit: ${names} ${skipped ? 'skipped' : 'skip N/A'}${banNote}`);
+  const devoured = bans.length > 0 && bans.every((b) => b.ok);
+  toast(chrome.i18n.getMessage(devoured ? 'toastDevoured' : skipped ? 'toastSkipped' : 'toastFailed', [names]));
 }
 
 // See content.js: cache holds FEATURES; verdicts derive from the current
@@ -197,7 +201,7 @@ const cachedVerdict = (entry) =>
 // Heuristic verdict acts on the artist's own (real) spotifyId → bannable.
 function actOnAiVerdict(artist, res, trackId, fresh) {
   if (state.heuristicAuto) nuke([{ ...artist, ban: true }], trackId);
-  else if (fresh) toast(`Ammit: "${artist.name}" looks AI (score ${res.score}) — confirm in the popup`);
+  else if (fresh) toast(chrome.i18n.getMessage('toastSuspect', [artist.name, String(res.score)]));
 }
 
 async function evaluateArtist(artist, trackId) {
@@ -224,12 +228,66 @@ async function evaluateArtist(artist, trackId) {
     // Persist through the background SW (single serialized writer).
     chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
 
+    refreshWidget();
     if (res.verdict === 'ai') actOnAiVerdict(artist, res, trackId, true);
   } catch (e) {
     console.warn(TAG, 'heuristic failed for', artist.name, String(e));
   } finally {
     state.inflight.delete(cid);
   }
+}
+
+// --- on-page widget (src/widget.js, loaded before this file) ---
+const primaryArtist = () => getCurrent()?.artists?.[0] ?? null;
+
+function refreshWidget() {
+  const cur = getCurrent();
+  const p = cur?.artists?.[0] ?? null;
+  let verdict = 'pending', score = null;
+  if (!state.enabled) verdict = 'disabled';
+  else if (cur) {
+    const blocked = cur.artists.find((a) => matchOne(a) && !isWhitelisted(a));
+    if (blocked) verdict = 'blocklist';
+    else if (p && isWhitelisted(p)) verdict = 'whitelisted';
+    else if (p?.spotifyId) {
+      const res = cachedVerdict(state.verdictCache[p.spotifyId]);
+      if (res) { verdict = res.verdict; score = res.score; }
+    }
+  }
+  ammitWidget.update({ artist: p?.name ?? null, verdict, score });
+}
+
+const widgetEvidence = (p) => {
+  const e = p.spotifyId ? state.verdictCache[p.spotifyId] : null;
+  return e?.features ? { evidence: { fv: e.fv, features: e.features } } : {};
+};
+
+async function widgetBlock() {
+  const p = primaryArtist();
+  if (!p) return;
+  const { userBlocklist = { artists: [] } } = await chrome.storage.local.get('userBlocklist');
+  userBlocklist.artists.push({ name: p.name, channelId: null, spotifyId: p.spotifyId ?? null, confidence: 'confirmed', source: 'user' });
+  await chrome.storage.local.set({ userBlocklist });
+  if (p.spotifyId) {
+    chrome.runtime.sendMessage({
+      type: 'submit-report',
+      payload: { platform: 'sp', artistId: p.spotifyId, name: p.name, action: 'report', ...widgetEvidence(p) },
+    });
+  }
+}
+
+async function widgetNotAi() {
+  const p = primaryArtist();
+  if (!p) return;
+  const data = await chrome.storage.local.get(['whitelist', 'verdictCache']);
+  const whitelist = { channelIds: [], names: [], spotifyIds: [], ...(data.whitelist ?? {}) };
+  if (p.spotifyId && !whitelist.spotifyIds.includes(p.spotifyId)) whitelist.spotifyIds.push(p.spotifyId);
+  if (p.name && !whitelist.names.includes(p.name)) whitelist.names.push(p.name);
+  const verdictCache = data.verdictCache ?? {};
+  const report = p.spotifyId ? { platform: 'sp', artistId: p.spotifyId, name: p.name, action: 'not_ai', ...widgetEvidence(p) } : null;
+  if (p.spotifyId) delete verdictCache[p.spotifyId];
+  await chrome.storage.local.set({ whitelist, verdictCache });
+  if (report) chrome.runtime.sendMessage({ type: 'submit-report', payload: report });
 }
 
 async function loadState() {
@@ -261,6 +319,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
     state.lastKey = null;
     onChange();
   }
+  refreshWidget();
 });
 
 // Popup query.
@@ -283,6 +342,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 function main() {
   loadState().then(() => {
+    ammitWidget.init({ bottom: '96px', onBlock: widgetBlock, onNotAi: widgetNotAi });
     const observer = new MutationObserver(() => onChange());
     const wait = setInterval(() => {
       const w = document.querySelector(SEL.widget);
@@ -292,6 +352,7 @@ function main() {
       observer.observe(document.body, { subtree: true, childList: true, characterData: true });
       console.log(TAG, 'now-playing observer attached');
       onChange();
+      refreshWidget();
     }, 500);
   });
 }

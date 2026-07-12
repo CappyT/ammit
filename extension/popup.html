@@ -3,81 +3,180 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { width: 300px; margin: 0; padding: 12px; background: #121212; color: #eee;
-           font: 13px Roboto, system-ui, sans-serif; }
-    h1 { font-size: 15px; margin: 0 0 10px; display: flex; justify-content: space-between; align-items: center; }
-    .row { margin: 8px 0; }
-    .muted { color: #999; font-size: 12px; }
-    #current { padding: 8px; background: #1e1e1e; border-radius: 6px; min-height: 34px; }
-    #current .artist { font-weight: 600; }
-    .verdict { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; }
-    .verdict.ai, .verdict.blocklist { background: #b00020; }
-    .verdict.human, .verdict.whitelisted { background: #1b5e20; }
-    .verdict.unsure { background: #7a5c00; }
-    button { background: #2d2d2d; color: #eee; border: 1px solid #444; border-radius: 6px;
-             padding: 6px 10px; cursor: pointer; margin-right: 6px; }
-    button:hover { background: #3a3a3a; }
-    button:disabled { opacity: .4; cursor: default; }
-    #block { border-color: #b00020; }
-    #whitelist { border-color: #1b5e20; }
-    input[type=checkbox] { transform: scale(1.2); }
-    input[type=range] { width: 100%; accent-color: #b00020; }
-    .threshold-label { display: flex; justify-content: space-between; font-size: 12px; }
-    .review-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
-                  background: #1e1e1e; border-radius: 6px; margin-top: 4px; }
+    :root {
+      --bg: #0f0f10; --card: #1b1b1e; --card2: #232327; --line: #2a2a2e;
+      --text: #ececf0; --muted: #9b9ba3; --gold: #d4a017;
+      --danger: #e5484d; --ok: #30a46c; --warn: #f5a524; --r: 12px;
+    }
+    * { box-sizing: border-box; }
+    body { width: 340px; margin: 0; background: var(--bg); color: var(--text);
+           font: 13px/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+    .hidden { display: none !important; }
+
+    header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 10px; }
+    header .logo { width: 24px; height: 24px; flex: none; }
+    header h1 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: .02em; flex: 1; }
+    .icon-btn { background: none; border: 0; color: var(--muted); cursor: pointer; padding: 4px;
+                border-radius: 8px; display: flex; }
+    .icon-btn:hover { background: var(--card2); color: var(--text); }
+
+    /* toggle switch */
+    .switch { position: relative; width: 34px; height: 20px; flex: none; }
+    .switch input { display: none; }
+    .switch i { position: absolute; inset: 0; background: var(--card2); border-radius: 999px;
+                transition: background .15s; cursor: pointer; }
+    .switch i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+                       background: #77777f; border-radius: 50%; transition: all .15s; }
+    .switch input:checked + i { background: var(--gold); }
+    .switch input:checked + i::after { left: 16px; background: #131313; }
+
+    .section { margin: 0 14px 12px; }
+    .section-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+                     color: var(--muted); margin: 0 2px 6px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; }
+
+    #current-artist { font-weight: 650; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+    #current-artist span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #current-title { color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #current-empty { color: var(--muted); }
+
+    .chip { font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; flex: none; }
+    .chip.ai, .chip.blocklist { background: rgba(229,72,77,.16); color: var(--danger); }
+    .chip.human, .chip.whitelisted { background: rgba(48,164,108,.16); color: var(--ok); }
+    .chip.unsure { background: rgba(245,165,36,.16); color: var(--warn); }
+    .chip.pending, .chip.disabled { background: rgba(155,155,163,.14); color: var(--muted); }
+
+    .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+    button.btn { flex: 1; background: var(--card2); color: var(--text); border: 1px solid var(--line);
+                 border-radius: 9px; padding: 6px 10px; cursor: pointer; font: inherit; font-size: 12.5px; }
+    button.btn:hover:not(:disabled) { border-color: #3a3a40; background: #2a2a2f; }
+    button.btn:disabled { opacity: .35; cursor: default; }
+    button.btn.danger { border-color: rgba(229,72,77,.55); }
+    button.btn.ok { border-color: rgba(48,164,108,.55); }
+
+    .review-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+                  background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
     .review-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .review-row button { padding: 2px 8px; font-size: 11px; margin: 0; }
-    .review-row .ok { border-color: #1b5e20; }
-    .review-row .ban { border-color: #b00020; }
+    .review-row .name small { color: var(--muted); }
+    .review-row button.btn { flex: none; padding: 3px 9px; font-size: 11.5px; border-radius: 7px; }
+
+    footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 11.5px;
+             padding: 9px 14px; display: flex; justify-content: space-between; gap: 8px; }
+
+    /* settings */
+    .setting { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+    .setting:last-child { border-bottom: 0; }
+    .setting .txt { flex: 1; }
+    .setting .txt b { font-weight: 550; display: block; }
+    .setting .txt small { color: var(--muted); }
+    input[type=range] { width: 100%; accent-color: var(--gold); margin: 6px 0 2px; }
+    input[type=text] { width: 100%; background: var(--card2); color: var(--text); border: 1px solid var(--line);
+                       border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12px; margin-top: 6px; }
+    input[type=text]::placeholder { color: #6d6d75; }
+    .inline { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .inline .muted { color: var(--muted); font-size: 11.5px; flex: 1; }
+    #threshold-row .val { color: var(--gold); font-weight: 700; }
   </style>
 </head>
 <body>
-  <h1>Ammit <input type="checkbox" id="enabled" title="enable/disable"></h1>
-  <div id="current" class="row">loading…</div>
-  <div class="row">
-    <button id="block" disabled>Block artist</button>
-    <button id="whitelist" disabled>Whitelist</button>
-  </div>
-  <div class="row">
-    <div class="threshold-label">
-      <span>AI threshold: <b id="threshold-val"></b></span>
-      <span class="muted">lower = stricter</span>
+
+  <header>
+    <svg class="logo" viewBox="0 0 128 128" aria-hidden="true">
+      <rect width="128" height="128" rx="28" fill="#131313"/>
+      <g fill="#d4a017">
+        <path d="M14 48Q14 31 32 29L46 28Q56 27 61 33L114 40Q120 42 118 47L64 51L25 53Q15 53 14 48Z"/>
+        <path d="M38 53l4.5 10 4.5-10Z"/><path d="M56 52l4.5 10 4.5-10Z"/>
+        <path d="M74 50.5l4.5 10 4.5-10Z"/><path d="M92 49l4.5 10 4.5-10Z"/><path d="M106 48l4 9 4-9Z"/>
+        <path d="M28 64Q26 60 32 61L104 79Q110 81 106 87L46 99Q38 100 36 93Z"/>
+        <path d="M46 66.5l4 -11 5 8.5Z"/><path d="M64 71l4 -11 5 8.5Z"/>
+        <path d="M82 75.5l4 -11 5 8.5Z"/><path d="M97 79l3.5 -10 4.5 8Z"/>
+      </g>
+      <circle cx="34" cy="40" r="5" fill="#131313"/><circle cx="34" cy="40" r="2.2" fill="#d4a017"/>
+    </svg>
+    <h1>Ammit</h1>
+    <label class="switch" data-i18n-title="enableTitle">
+      <input type="checkbox" id="enabled"><i></i>
+    </label>
+    <button class="icon-btn" id="open-settings" data-i18n-title="settings">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
+    <button class="icon-btn hidden" id="close-settings" data-i18n-title="back">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    </button>
+  </header>
+
+  <!-- main view -->
+  <div id="view-main">
+    <div class="section">
+      <div class="section-label" data-i18n="nowPlaying"></div>
+      <div class="card">
+        <div id="current-empty" data-i18n="noTrack"></div>
+        <div id="current-info" class="hidden">
+          <div id="current-artist"><span></span><span class="chip" id="current-chip"></span></div>
+          <div id="current-title"></div>
+          <div class="btn-row">
+            <button class="btn danger" id="block" data-i18n="blockArtist"></button>
+            <button class="btn ok" id="whitelist" data-i18n="notAi"></button>
+          </div>
+        </div>
+      </div>
     </div>
-    <input id="threshold" type="range" min="3" max="8" step="1"
-           title="score at which an artist is treated as AI (applies to cached verdicts too)">
+
+    <div class="section hidden" id="review-section">
+      <div class="section-label"><span data-i18n="reviewTitle"></span> <span id="review-count"></span></div>
+      <div id="review"></div>
+    </div>
+
+    <footer>
+      <span id="stats"></span>
+    </footer>
   </div>
-  <div class="row">
-    <label title="off (default): heuristic verdicts are only flagged here for review; on: they act like blocklist hits">
-      <input type="checkbox" id="heuristic-auto"> auto-block heuristic verdicts
-    </label>
+
+  <!-- settings view -->
+  <div id="view-settings" class="hidden">
+    <div class="section">
+      <div class="section-label" data-i18n="protectionSection"></div>
+      <div class="card">
+        <div class="setting" id="threshold-row" style="display:block">
+          <div class="txt">
+            <b><span data-i18n="threshold"></span> · <span class="val" id="threshold-val"></span></b>
+            <small data-i18n="thresholdHint"></small>
+          </div>
+          <input id="threshold" type="range" min="3" max="8" step="1">
+        </div>
+        <div class="setting">
+          <div class="txt"><b data-i18n="autoBlock"></b><small data-i18n="autoBlockHint"></small></div>
+          <label class="switch"><input type="checkbox" id="heuristic-auto"><i></i></label>
+        </div>
+        <div class="setting">
+          <div class="txt"><b data-i18n="fullAction"></b><small data-i18n="fullActionHint"></small></div>
+          <label class="switch"><input type="checkbox" id="action-full"><i></i></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label" data-i18n="communitySection"></div>
+      <div class="card">
+        <div class="setting">
+          <div class="txt"><b data-i18n="contribute"></b><small data-i18n="contributeHint"></small></div>
+          <label class="switch"><input type="checkbox" id="contribute"><i></i></label>
+        </div>
+        <input id="report-url" type="text" data-i18n-ph="reportUrlPh">
+        <input id="sync-url" type="text" data-i18n-ph="syncUrlPh">
+        <div class="inline">
+          <span class="muted" id="sync-info"></span>
+          <button class="btn" id="sync" style="flex:none" data-i18n="syncNow"></button>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="row">
-    <label title="off (default): blocked tracks are only skipped; on: also dislike on YT Music and ban the artist on Spotify">
-      <input type="checkbox" id="action-full"> full action (dislike / ban, not just skip)
-    </label>
-  </div>
-  <div id="stats" class="row muted"></div>
-  <div class="row">
-    <div class="muted" id="review-title">suspected AI (heuristic) — confirm or clear:</div>
-    <div id="review"></div>
-  </div>
-  <div class="row">
-    <button id="sync">Sync blocklist</button>
-    <span id="sync-info" class="muted"></span>
-  </div>
-  <div class="row">
-    <input id="sync-url" type="text" placeholder="remote blocklist URL (raw JSON)"
-           style="width: 100%; box-sizing: border-box; background: #1e1e1e; color: #eee;
-                  border: 1px solid #444; border-radius: 6px; padding: 5px;">
-  </div>
-  <div class="row">
-    <label title="anonymous: sends only artist ids + the extracted feature snapshot with a random install id — no listening history, no account data">
-      <input type="checkbox" id="contribute"> contribute reports to the community list
-    </label>
-    <input id="report-url" type="text" placeholder="report API URL (…/v1/reports)"
-           style="width: 100%; box-sizing: border-box; background: #1e1e1e; color: #eee;
-                  border: 1px solid #444; border-radius: 6px; padding: 5px; margin-top: 4px;">
-  </div>
+
   <script src="src/heuristics.js"></script>
   <script src="src/popup.js"></script>
 </body>

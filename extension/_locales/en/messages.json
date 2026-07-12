@@ -1,0 +1,57 @@
+{
+  "appName": { "message": "Ammit" },
+  "appDesc": { "message": "Ammit devours AI-generated music: skips (and optionally dislikes or bans) AI artists on YouTube Music and Spotify." },
+
+  "nowPlaying": { "message": "Now playing" },
+  "noTrack": { "message": "Nothing playing — open YouTube Music or Spotify" },
+  "blockArtist": { "message": "Block artist" },
+  "notAi": { "message": "Not AI" },
+  "reviewTitle": { "message": "To confirm" },
+  "enableTitle": { "message": "Enable / disable Ammit" },
+
+  "settings": { "message": "Settings" },
+  "back": { "message": "Back" },
+  "protectionSection": { "message": "Protection" },
+  "communitySection": { "message": "Community" },
+  "threshold": { "message": "Heuristic sensitivity" },
+  "thresholdHint": { "message": "Lower = stricter: more blocks, more false positives" },
+  "autoBlock": { "message": "Auto-block heuristic verdicts" },
+  "autoBlockHint": { "message": "Off: suspected artists only show up for review" },
+  "fullAction": { "message": "Full action (dislike / ban)" },
+  "fullActionHint": { "message": "Off: blocked tracks are only skipped" },
+  "contribute": { "message": "Send anonymous reports" },
+  "contributeHint": { "message": "Artist ids and score only, random install id" },
+  "reportUrlPh": { "message": "Report API URL (…/v1/reports)" },
+  "syncUrlPh": { "message": "Remote blocklist URL (raw JSON)" },
+  "syncNow": { "message": "Sync now" },
+  "lastSync": { "message": "last sync: $TIME$", "placeholders": { "time": { "content": "$1" } } },
+  "neverSynced": { "message": "never synced" },
+  "noSyncUrl": { "message": "no sync URL set" },
+  "syncing": { "message": "syncing…" },
+  "syncOk": { "message": "synced $COUNT$ artists", "placeholders": { "count": { "content": "$1" } } },
+  "syncFail": { "message": "sync failed: $REASON$", "placeholders": { "reason": { "content": "$1" } } },
+  "statsLine": {
+    "message": "$BLOCKED$ blocked artists · $VERDICTS$ verdicts ($AI$ AI)",
+    "placeholders": {
+      "blocked": { "content": "$1" },
+      "verdicts": { "content": "$2" },
+      "ai": { "content": "$3" }
+    }
+  },
+
+  "verdict_ai": { "message": "AI" },
+  "verdict_unsure": { "message": "unsure" },
+  "verdict_human": { "message": "human" },
+  "verdict_blocklist": { "message": "blocked" },
+  "verdict_whitelisted": { "message": "whitelisted" },
+  "verdict_pending": { "message": "evaluating…" },
+  "verdict_disabled": { "message": "paused" },
+
+  "toastSkipped": { "message": "Ammit skipped “$NAME$”", "placeholders": { "name": { "content": "$1" } } },
+  "toastDevoured": { "message": "Ammit devoured “$NAME$”", "placeholders": { "name": { "content": "$1" } } },
+  "toastSuspect": {
+    "message": "“$NAME$” looks AI (score $SCORE$) — confirm from the badge",
+    "placeholders": { "name": { "content": "$1" }, "score": { "content": "$2" } }
+  },
+  "toastFailed": { "message": "Ammit: action failed, see console" }
+}
