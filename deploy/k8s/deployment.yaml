@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ammit-report-api
+  labels:
+    app: ammit-report-api
+spec:
+  replicas: 1
+  # Single RWO PVC holds the SQLite DB; never run two writers at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ammit-report-api
+  template:
+    metadata:
+      labels:
+        app: ammit-report-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000        # `node` user in node:alpine
+        runAsGroup: 1000
+        fsGroup: 1000          # makes the mounted PVC writable by the app
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ammit-report-api
+          image: ghcr.io/cappyt/ammit:latest # pin to a version tag in production
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: ammit-report-api
+          env:
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ammit-report-api
+                  key: ADMIN_TOKEN
+            - name: HMAC_SALT
+              valueFrom:
+                secretKeyRef:
+                  name: ammit-report-api
+                  key: HMAC_SALT
+            # Remove this env if git publishing is disabled (see ConfigMap).
+            - name: GIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ammit-report-api
+                  key: GIT_TOKEN
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ammit-report-api-data
+        - name: tmp
+          emptyDir: {}

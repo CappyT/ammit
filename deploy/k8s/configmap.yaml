@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ammit-report-api
+  labels:
+    app: ammit-report-api
+data:
+  # --- runtime / storage ---
+  PORT: "8080"
+  DB_PATH: "/data/ammit.db"
+  # Paths baked into the image; keep as-is unless you move the files.
+  SEED_PATH: "extension/data/blocklist.json"
+  HEURISTICS_PATH: "extension/src/heuristics.js"
+  # Client IP is taken from this header (set by Cloudflare at the tunnel edge).
+  IP_HEADER: "cf-connecting-ip"
+
+  # --- rate caps ---
+  CAP_INSTALL_DAY: "30"
+  CAP_IP_DAY: "60"
+
+  # --- promotion thresholds ---
+  MIN_INSTALLS: "3"
+  MIN_IP_BUCKETS: "3"
+  MIN_AGE_HOURS: "48"
+  NOT_AI_RATIO: "0.34"
+
+  # --- aggregation ---
+  AGGREGATE_INTERVAL_MIN: "60"
+
+  # --- optional: publish the promoted blocklist to git ---
+  # Delete this block if you are not publishing. GIT_TOKEN is a secret and
+  # lives in the ExternalSecret, not here.
+  GIT_API_BASE: "https://gitea.example.com/api/v1"   # CHANGE ME (or https://api.github.com)
+  GIT_REPO: "user/ammit-blocklist"                   # CHANGE ME (owner/name)
+  GIT_BRANCH: "main"
+  GIT_FILEPATH: "blocklist.json"
