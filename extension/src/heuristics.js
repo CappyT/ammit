@@ -2,7 +2,7 @@
 // Used by the content script AND evaluated in the page by tools/collect-features.mjs,
 // so calibration and runtime compute identical features. Keep dependency-free;
 // scoreFeatures() must stay pure (it is also eval'd in node by tools/analyze-features.mjs).
-var ytmAiban = (() => {
+var ammit = (() => {
   const YEAR_RE = /\b(19|20)\d{2}\b/;
   const AI_KEYWORD_RE = /\bsuno\b|\budio\b|ai[ -]generated|generative ai|created with ai/i;
 
@@ -95,13 +95,19 @@ var ytmAiban = (() => {
       }
     }
 
-    let albums = 0, singles = 0, truncated = false;
+    let albums = 0, singles = 0, truncated = false, livePerformances = false;
     const years = [];
     for (const c of sections) {
       const car = c.musicCarouselShelfRenderer;
       if (!car) continue;
       const hdr = car.header?.musicCarouselShelfBasicHeaderRenderer;
       const title = hdr?.title?.runs?.[0]?.text ?? '';
+      // YTM's footprint equivalent of Spotify concerts: a "Live performances"
+      // shelf (live videos) was absent on every probed AI channel, present only
+      // on artists who actually play live. "Featured on" and "Playlists by"
+      // looked similar but DO appear on AI channels (Xania Monet, Forrest
+      // Rose) — measured 2026-07-12, do not use them as vetoes.
+      if (title === 'Live performances') livePerformances = true;
       const isAlbums = title === 'Albums';
       const isSingles = title === 'Singles & EPs' || title === 'Singles';
       if (!isAlbums && !isSingles) continue;
@@ -139,13 +145,28 @@ var ytmAiban = (() => {
       playsToSubs: maxPlays !== null ? maxPlays / Math.max(subscribers ?? 1, 1) : null,
       hasDescription: description.trim().length > 0,
       aiKeyword: AI_KEYWORD_RE.test(description + ' ' + name),
+      livePerformances,
     };
+  }
+
+  // Score → verdict, with a configurable "ai" cutoff. The unsure band sits 2
+  // points below it, so the calibrated default (5/3) is preserved at any
+  // threshold. Decisions must always derive the verdict from the cached
+  // FEATURES and the CURRENT scorer+threshold — never trust a stored verdict
+  // or score, which reflect the scorer at extraction time (the Saja Boys
+  // stale-cache false positive). Bump FEATURES_VERSION when extractFeatures
+  // changes shape; cache entries with a different fv are ignored and re-extracted.
+  const DEFAULT_AI_THRESHOLD = 5;
+  const FEATURES_VERSION = 2; // v2: + livePerformances (yt), concerts/merch (sp)
+  function verdictFor(score, aiThreshold) {
+    const t = aiThreshold ?? DEFAULT_AI_THRESHOLD;
+    return score >= t ? 'ai' : score >= t - 2 ? 'unsure' : 'human';
   }
 
   // Pure scoring — weights calibrated on confirmed-AI vs. real-artist samples
   // (see tools/analyze-features.mjs). f.mbPresent is supplied by the caller
   // (MusicBrainz lookup happens outside the page).
-  function scoreFeatures(f) {
+  function scoreFeatures(f, aiThreshold) {
     const reasons = [];
     let score = 0;
     const add = (pts, why) => { score += pts; reasons.push(`+${pts} ${why}`); };
@@ -178,9 +199,15 @@ var ytmAiban = (() => {
       add(2, `inhuman cadence (${f.releasesPerMonth.toFixed(1)} releases/month)`);
     if (!f.hasDescription) add(1, 'no channel description');
 
-    const verdict = score >= 5 ? 'ai' : score >= 3 ? 'unsure' : 'human';
+    // Real-world footprint veto: Spotify concerts/merch and YTM "Live
+    // performances" were absent on every confirmed-AI sample but present on
+    // real performing artists — metadata alone must never out-vote a physical
+    // footprint. Fields the platform doesn't provide are undefined → no-op.
+    const footprint = (f.concerts ?? 0) > 0 || (f.merch ?? 0) > 0 || f.livePerformances === true;
+    if (footprint) reasons.push('veto: real-world footprint (concerts/merch/live)');
+    const verdict = footprint ? 'human' : verdictFor(score, aiThreshold);
     return { score, verdict, reasons };
   }
 
-  return { extractFeatures, scoreFeatures, searchArtist, parseCount };
+  return { extractFeatures, scoreFeatures, verdictFor, DEFAULT_AI_THRESHOLD, FEATURES_VERSION, searchArtist, parseCount };
 })();

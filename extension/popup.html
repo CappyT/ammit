@@ -21,16 +21,46 @@
     #block { border-color: #b00020; }
     #whitelist { border-color: #1b5e20; }
     input[type=checkbox] { transform: scale(1.2); }
+    input[type=range] { width: 100%; accent-color: #b00020; }
+    .threshold-label { display: flex; justify-content: space-between; font-size: 12px; }
+    .review-row { display: flex; align-items: center; gap: 6px; padding: 4px 6px;
+                  background: #1e1e1e; border-radius: 6px; margin-top: 4px; }
+    .review-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .review-row button { padding: 2px 8px; font-size: 11px; margin: 0; }
+    .review-row .ok { border-color: #1b5e20; }
+    .review-row .ban { border-color: #b00020; }
   </style>
 </head>
 <body>
-  <h1>YTM AI-Ban <input type="checkbox" id="enabled" title="enable/disable"></h1>
+  <h1>Ammit <input type="checkbox" id="enabled" title="enable/disable"></h1>
   <div id="current" class="row">loading…</div>
   <div class="row">
     <button id="block" disabled>Block artist</button>
     <button id="whitelist" disabled>Whitelist</button>
   </div>
+  <div class="row">
+    <div class="threshold-label">
+      <span>AI threshold: <b id="threshold-val"></b></span>
+      <span class="muted">lower = stricter</span>
+    </div>
+    <input id="threshold" type="range" min="3" max="8" step="1"
+           title="score at which an artist is treated as AI (applies to cached verdicts too)">
+  </div>
+  <div class="row">
+    <label title="off (default): heuristic verdicts are only flagged here for review; on: they act like blocklist hits">
+      <input type="checkbox" id="heuristic-auto"> auto-block heuristic verdicts
+    </label>
+  </div>
+  <div class="row">
+    <label title="off (default): blocked tracks are only skipped; on: also dislike on YT Music and ban the artist on Spotify">
+      <input type="checkbox" id="action-full"> full action (dislike / ban, not just skip)
+    </label>
+  </div>
   <div id="stats" class="row muted"></div>
+  <div class="row">
+    <div class="muted" id="review-title">suspected AI (heuristic) — confirm or clear:</div>
+    <div id="review"></div>
+  </div>
   <div class="row">
     <button id="sync">Sync blocklist</button>
     <span id="sync-info" class="muted"></span>
@@ -40,6 +70,15 @@
            style="width: 100%; box-sizing: border-box; background: #1e1e1e; color: #eee;
                   border: 1px solid #444; border-radius: 6px; padding: 5px;">
   </div>
+  <div class="row">
+    <label title="anonymous: sends only artist ids + the extracted feature snapshot with a random install id — no listening history, no account data">
+      <input type="checkbox" id="contribute"> contribute reports to the community list
+    </label>
+    <input id="report-url" type="text" placeholder="report API URL (…/v1/reports)"
+           style="width: 100%; box-sizing: border-box; background: #1e1e1e; color: #eee;
+                  border: 1px solid #444; border-radius: 6px; padding: 5px; margin-top: 4px;">
+  </div>
+  <script src="src/heuristics.js"></script>
   <script src="src/popup.js"></script>
 </body>
 </html>

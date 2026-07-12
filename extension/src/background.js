@@ -1,21 +1,24 @@
 const SEED_URL = chrome.runtime.getURL('data/blocklist.json');
 const SYNC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const SYNC_ALARM = 'ytm-aiban-sync';
-const MB_UA = 'ytm-aiban/0.2 (https://github.com/; AI-music blocklist extension)';
+const SYNC_ALARM = 'ammit-sync';
+const MB_UA = 'ammit/0.4 (https://github.com/CappyT/ammit; AI-music blocklist extension)';
 
 // Refresh the bundled blocklist on every install/update so rebuilds of
 // data/blocklist.json land in storage. User data (whitelist, userBlocklist)
 // lives in separate keys and is never touched here.
 chrome.runtime.onInstalled.addListener(async () => {
   const seed = await (await fetch(SEED_URL)).json();
-  const existing = await chrome.storage.local.get(['whitelist', 'userBlocklist', 'enabled']);
+  const existing = await chrome.storage.local.get(['whitelist', 'userBlocklist', 'enabled', 'installId']);
   await chrome.storage.local.set({
     blocklist: seed,
     whitelist: existing.whitelist ?? { channelIds: [], names: [], spotifyIds: [] },
     userBlocklist: existing.userBlocklist ?? { artists: [] },
     enabled: existing.enabled ?? true,
+    // Anonymous random id for community reporting (rate limiting + vote dedup
+    // server-side); carries no user data and never changes after install.
+    installId: existing.installId ?? crypto.randomUUID(),
   });
-  console.log('[ytm-aiban] seeded blocklist:', seed.stats);
+  console.log('[ammit] seeded blocklist:', seed.stats);
   installMbUaRule();
   scheduleSync();
 });
@@ -42,7 +45,7 @@ function installMbUaRule() {
       },
       condition: { urlFilter: '||musicbrainz.org/', resourceTypes: ['xmlhttprequest'] },
     }],
-  }).catch((e) => console.warn('[ytm-aiban] DNR rule failed:', e));
+  }).catch((e) => console.warn('[ammit] DNR rule failed:', e));
 }
 
 // --- MusicBrainz presence lookup (fix #6: strictly serialized) ---
@@ -96,6 +99,25 @@ function cacheVerdict(key, entry) {
   return result;
 }
 
+// --- Community reporting (docs/crowdsourcing-v2.md) ---
+// POST to the configured report API; the server replies with CORS headers so
+// no host permission is needed. No-op until the user sets a reportUrl.
+async function submitReport(payload) {
+  const { reportUrl, contribute, installId } = await chrome.storage.local.get(['reportUrl', 'contribute', 'installId']);
+  if (!reportUrl || contribute === false) return { ok: false, reason: 'reporting disabled' };
+  if (!payload?.artistId) return { ok: false, reason: 'no artist id' }; // name-only: server would reject
+  try {
+    const res = await fetch(reportUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, installId, extVersion: chrome.runtime.getManifest().version }),
+    });
+    return { ok: res.ok, status: res.status };
+  } catch (e) {
+    return { ok: false, reason: String(e) };
+  }
+}
+
 // --- Remote blocklist sync (fix #4: periodic, not only on startup) ---
 async function syncBlocklist() {
   const { syncUrl } = await chrome.storage.local.get('syncUrl');
@@ -138,6 +160,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'sync-now') {
     syncBlocklist().then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'submit-report') {
+    submitReport(msg.payload).then(sendResponse);
     return true;
   }
 });

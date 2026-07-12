@@ -37,7 +37,7 @@ async function mbLookup(name) {
   if (wait > 0) await sleep(wait);
   lastMb = Date.now();
   const url = `https://musicbrainz.org/ws/2/artist?query=artist:${encodeURIComponent(JSON.stringify(name))}&fmt=json&limit=3`;
-  const res = await fetch(url, { headers: { 'User-Agent': 'ytm-aiban-calibration/0.1 (cappy95@gmail.com)' } });
+  const res = await fetch(url, { headers: { 'User-Agent': 'ammit-calibration/0.1 (cappy95@gmail.com)' } });
   if (!res.ok) return { mbPresent: null, mbScore: null };
   const j = await res.json();
   const hit = (j.artists ?? []).find(
@@ -53,7 +53,7 @@ const page = browser.contexts().flatMap((c) => c.pages())
 if (!page) { console.error('no ytm tab'); process.exit(2); }
 
 async function inject() {
-  await page.evaluate(`(() => { ${heurSrc}; window.__aiban = ytmAiban; })()`);
+  await page.evaluate(`(() => { ${heurSrc}; window.__ammit = ammit; })()`);
 }
 await inject();
 
@@ -61,7 +61,7 @@ async function inPage(expr) {
   try {
     return await page.evaluate(expr);
   } catch (e) {
-    if (String(e).includes('__aiban')) { await inject(); return page.evaluate(expr); }
+    if (String(e).includes('__ammit')) { await inject(); return page.evaluate(expr); }
     throw e;
   }
 }
@@ -70,10 +70,10 @@ const rows = [];
 async function collect(label, name, channelId) {
   try {
     if (!channelId) {
-      channelId = await inPage(`__aiban.searchArtist(${JSON.stringify(name)})`);
+      channelId = await inPage(`__ammit.searchArtist(${JSON.stringify(name)})`);
       if (!channelId) { console.log(`SKIP ${name}: not found in search`); return; }
     }
-    const f = await inPage(`__aiban.extractFeatures(${JSON.stringify(channelId)})`);
+    const f = await inPage(`__ammit.extractFeatures(${JSON.stringify(channelId)})`);
     const mb = await mbLookup(f.name ?? name);
     rows.push({ label, listName: name, ...f, ...mb });
     console.log(`${label} ${f.name} subs=${f.subscribers} rel=${f.totalReleases} 2024+=${f.share2024plus?.toFixed(2) ?? '-'} mb=${mb.mbPresent}`);

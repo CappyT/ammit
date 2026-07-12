@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Ammit: the heart of impure (AI) music, devoured — bite marks top-right. -->
+  <rect width="128" height="128" rx="24" fill="#131313"/>
+  <defs>
+    <mask id="bite">
+      <rect width="128" height="128" fill="#fff"/>
+      <circle cx="99" cy="35" r="14" fill="#000"/>
+      <circle cx="112" cy="54" r="12" fill="#000"/>
+      <circle cx="104" cy="19" r="9" fill="#000"/>
+    </mask>
+  </defs>
+  <path mask="url(#bite)" fill="#c62828"
+        d="M64 110 C 26 84 14 62 14 45 C 14 29 27 18 42 18 C 52 18 60 24 64 33 C 68 24 76 18 86 18 C 101 18 114 29 114 45 C 114 62 102 84 64 110 Z"/>
+</svg>

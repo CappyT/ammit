@@ -1,8 +1,11 @@
-# ytm-aiban
+# Ammit 🐊
 
-Chrome extension (MV3) that fights AI-generated music on **YouTube Music** (auto
-dislike + skip) and **Spotify** (skip + permanent artist-ban), from one shared
-blocklist.
+*In Egyptian mythology, Ammit devoured the hearts of impure souls. This one
+devours AI-generated music.*
+
+Chrome extension (MV3) that filters AI-generated music on **YouTube Music** and
+**Spotify** from one shared blocklist: blocked tracks are skipped by default,
+with opt-in escalation to dislike (YTM) and permanent artist-ban (Spotify).
 
 ## How it works — YouTube Music
 
@@ -123,9 +126,22 @@ Artists not on the blocklist are scored live (`src/heuristics.js`): the content
 script fetches the artist page via innertube `browse` (subscribers, full album/
 singles catalog with release years by following the "more" pages, top-song play
 counts, description), asks the service worker for a MusicBrainz presence check
-(cached, 1.2s throttle), and applies a weighted point system. `score ≥ 5` →
-verdict `ai` → same dislike+skip flow; `3-4` → `unsure` (logged only). Verdicts
-are cached per channel in `verdictCache`.
+(cached, 1.2s throttle), and applies a weighted point system. `score ≥ threshold`
+(default 5, configurable 3–8 from the popup) → verdict `ai`; the 2 points below
+the threshold are `unsure`. **Blocklist-first**: by default a heuristic `ai`
+verdict only flags the artist for review in the popup (toast + review list);
+auto-action is opt-in (`auto-block heuristic verdicts`). A real-world footprint
+vetoes an `ai` verdict outright on both platforms: Spotify concerts or merch
+> 0, YTM a "Live performances" shelf — each absent on every confirmed-AI
+channel probed and present only on artists who actually perform ("Featured on"
+and "Playlists by" looked similar but appear on AI channels too — rejected).
+A track the user has liked/saved is never acted on regardless of verdict.
+
+The cache stores **features** (facts), not verdicts: score and verdict are
+derived at decision time from the current scorer + threshold, so recalibrations
+and slider moves apply retroactively to everything already scored (a stale
+cached verdict once kept dislike-nuking a false positive after the scorer had
+been fixed). `FEATURES_VERSION` gates entries from older extractors.
 
 Weights were calibrated on 30 confirmed-AI + 30 real artists collected with the
 same extractor (`tools/collect-features.mjs` + `tools/analyze-features.mjs`):
@@ -139,13 +155,36 @@ years) and is deliberately not scored.
 
 Enable toggle · current track with verdict badge (blocklist/ai/unsure/human/
 whitelisted + score with reasons on hover) · block / whitelist current artist ·
-remote blocklist sync (set a raw-JSON URL, `Sync blocklist` button; the service
-worker also re-syncs on browser start when older than 24h).
+AI threshold slider (3 = strictest, 8 = most conservative; applies live, cached
+verdicts included) · `auto-block heuristic verdicts` (default off: heuristic
+verdicts only appear in the review list) · `full action` (default off: blocked
+tracks are only **skipped**; opt in to also dislike on YT Music / ban the artist
+on Spotify) · review list of suspected-AI artists with one-click **Block** /
+**Not AI** · remote blocklist sync (set a raw-JSON URL, `Sync blocklist` button;
+the service worker also re-syncs on browser start when older than 24h).
+
+## Community blocklist (v2)
+
+Design: [docs/crowdsourcing-v2.md](docs/crowdsourcing-v2.md). Implemented MVP:
+
+- `server/server.mjs` — zero-dependency report API (node:sqlite): ingestion
+  with per-install/per-IP caps, server-side evidence re-scoring (reports whose
+  feature snapshot doesn't look like AI can never auto-promote — the
+  anti-brigading guard), promotion thresholds (≥3 installs, ≥3 IP /24 buckets,
+  ≥48h, `not_ai` minority) to a `community` tier, admin endpoints for human
+  promotion to `confirmed`, artifact publishing (ETag + max-age, optional git
+  contents-API push).
+- Extension: `contribute reports` toggle + report API URL in the popup; Block /
+  Not AI (review list and current-track buttons) also submit an anonymous
+  report (artist ids + feature snapshot + random install id). Spotify ban now
+  requires `confirmed` confidence — `suspected` (imported lists) and
+  `community` (auto-promoted) entries skip only.
+- `deploy/` — Dockerfile (no npm deps), kustomize base (PVC + ExternalSecret +
+  ServiceMonitor), cloudflared tunnel, Gitea Actions workflow, and the
+  Cloudflare free-tier setup steps.
 
 ## Roadmap
 
-- Crowdsourced list v2: report API (Cloudflare Workers + KV or Supabase)
-  aggregating per-user reports with promotion thresholds; the current remote-sync
-  URL mechanism is the v1 (point it at a PR-moderated JSON on a public repo).
-- Surface `unsure` verdicts in the popup for one-click confirmation.
 - Import updated source lists periodically (`tools/build-blocklist.mjs`).
+- In-popup Spotify unban for artists banned before skip-only became the default.
+- Per-artist community status in the popup (`GET /v1/artist/:key`).

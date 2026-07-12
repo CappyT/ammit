@@ -13,7 +13,7 @@ if (!page) { console.error('no spotify tab'); process.exit(2); }
 
 let token = null;
 page.on('request', (req) => { const a = req.headers()['authorization']; if (a?.startsWith('Bearer ') && !token) token = a.slice(7); });
-page.on('console', (m) => { const t = m.text(); if (t.includes('ytm-aiban')) console.log('CONSOLE:', t); });
+page.on('console', (m) => { const t = m.text(); if (t.includes('ammit')) console.log('CONSOLE:', t); });
 
 await page.goto(`https://open.spotify.com/artist/${artistId}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(3500);

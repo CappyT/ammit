@@ -14,14 +14,14 @@ const rows = JSON.parse(readFileSync(process.argv[2] ?? join(root, 'features.jso
 // scoreFeatures is pure; the DOM-touching functions are never called here.
 globalThis.document = { documentElement: { innerHTML: '' } };
 const src = readFileSync(join(root, 'extension/src/heuristics.js'), 'utf8');
-const ytmAiban = eval(`${src}; ytmAiban`);
+const ammit = eval(`${src}; ammit`);
 
 const fmt = (v) => (v === null || v === undefined ? '-' : typeof v === 'number' ? +v.toFixed(2) : v);
 const confusion = { ai: {}, real: {} };
 
 console.log('label | name | subs | rel | 2024+ | rate/mo | mb | desc | kw | score | verdict');
 for (const r of rows) {
-  const { score, verdict } = ytmAiban.scoreFeatures(r);
+  const { score, verdict } = ammit.scoreFeatures(r);
   confusion[r.label][verdict] = (confusion[r.label][verdict] ?? 0) + 1;
   console.log([r.label, r.name, fmt(r.subscribers), r.totalReleases, fmt(r.share2024plus),
     fmt(r.releasesPerMonth), fmt(r.mbPresent), r.hasDescription ? 'y' : 'n',

@@ -1,4 +1,4 @@
-// YTM AI-Ban — Spotify content script (isolated world).
+// Ammit — Spotify content script (isolated world).
 // Watches the now-playing widget; when the current artist is on the blocklist,
 // skips the track and bans the artist via the main-world bridge (spotify-main.js)
 // so Spotify's own engine stops serving them. Free accounts have limited skips,
@@ -9,18 +9,24 @@
 // - artist link:  [data-testid=now-playing-widget] a[href*="/artist/"]  (locale prefix, e.g. /intl-it/artist/<id>)
 // - skip:         [data-testid=control-button-skip-forward]
 
-const TAG = '[ytm-aiban/spotify]';
-const NS = 'ytm-aiban-spotify';
+const TAG = '[ammit/spotify]';
+const NS = 'ammit-spotify';
 
 const SEL = {
   widget: '[data-testid=now-playing-widget]',
   artistLink: '[data-testid=now-playing-widget] a[href*="/artist/"]',
   coverLink: '[data-testid=now-playing-widget] [data-testid=CoverSlotCollapsed__container] a',
   skip: '[data-testid=control-button-skip-forward]',
+  // "Add to Liked Songs" toggle: the only aria-checked button in the widget
+  // (no data-testid; aria-label is localized — never match on it).
+  saved: '[data-testid=now-playing-widget] button[aria-checked]',
 };
 
 let state = {
   enabled: true,
+  aiThreshold: ammit.DEFAULT_AI_THRESHOLD,
+  heuristicAuto: false, // blocklist-first: heuristic verdicts act only when opted in
+  actionFull: false, // default skip-only; artist-ban is opt-in
   whitelist: { channelIds: [], names: [], spotifyIds: [] },
   bySpotifyId: new Map(),
   byName: new Map(),
@@ -74,13 +80,15 @@ function matchOne({ spotifyId, name }) {
 }
 
 // All credited artists that are blocklisted and not whitelisted. `ban` is true
-// only when the match is on the artist's real spotifyId — a name-only blocklist
-// match (generic/colliding name) must never trigger a permanent ban of a
-// possibly-legitimate homonym; it only skips.
+// only when the match is on the artist's real spotifyId AND the entry is
+// 'confirmed' (user blocks and human-moderated crowd entries) — a name-only
+// match (possibly a legitimate homonym) or a lower tier ('suspected' from the
+// imported lists, 'community' auto-promoted by report thresholds) must never
+// trigger a permanent ban; they only skip.
 function blockedArtists(cur) {
   return cur.artists
     .filter((a) => !isWhitelisted(a) && matchOne(a))
-    .map((a) => ({ ...a, ban: !!(a.spotifyId && state.bySpotifyId.get(a.spotifyId)) }));
+    .map((a) => ({ ...a, ban: state.bySpotifyId.get(a.spotifyId ?? '')?.confidence === 'confirmed' }));
 }
 
 let bridgeSeq = 0;
@@ -142,11 +150,18 @@ async function onChange() {
   }
 }
 
-// Skip the current track and ban each target flagged `ban` (once each), so
-// Spotify's engine stops serving them even in collabs. Targets: [{name, spotifyId, ban}].
+// Skip the current track and — with actionFull opted in — ban each target
+// flagged `ban` (once each), so Spotify's engine stops serving them even in
+// collabs. Default is skip-only. Targets: [{name, spotifyId, ban}].
 async function nuke(targets, trackId) {
   const names = targets.map((a) => a.name).join(', ');
-  console.log(TAG, 'BLOCKED:', names, '→ skip' + (targets.some((t) => t.ban) ? ' + ban' : ''));
+  // The user's explicit save ("Liked Songs") on this track outranks any verdict.
+  if (document.querySelector(SEL.saved)?.getAttribute('aria-checked') === 'true') {
+    console.log(TAG, 'nuke vetoed — track is in the user\'s Liked Songs');
+    return;
+  }
+  const banning = state.actionFull && targets.some((t) => t.ban);
+  console.log(TAG, 'BLOCKED:', names, '→ skip' + (banning ? ' + ban' : ''));
   // Skip only if the now-playing STILL credits one of these targets. This is
   // robust when trackId is null (radio/autoplay omit it) and a late async
   // heuristic verdict lands after the track already advanced — never skip an
@@ -158,24 +173,38 @@ async function nuke(targets, trackId) {
   if (!stillPlaying) console.log(TAG, 'skip suppressed — target no longer playing');
 
   const bans = [];
-  for (const a of targets) {
-    if (!a.ban || !a.spotifyId) continue; // name-only match → skip only, never ban
-    if (state.banned.has(a.spotifyId)) { bans.push({ name: a.name, ok: true, cached: true }); continue; }
-    const r = await bridge('ban', a.spotifyId);
-    if (r.ok) state.banned.add(a.spotifyId);
-    bans.push({ name: a.name, ...r });
+  if (banning) {
+    for (const a of targets) {
+      if (!a.ban || !a.spotifyId) continue; // name-only match → skip only, never ban
+      if (state.banned.has(a.spotifyId)) { bans.push({ name: a.name, ok: true, cached: true }); continue; }
+      const r = await bridge('ban', a.spotifyId);
+      if (r.ok) state.banned.add(a.spotifyId);
+      bans.push({ name: a.name, ...r });
+    }
   }
   console.log(TAG, 'result:', JSON.stringify({ skipped, bans }));
   const banNote = bans.length ? (bans.every((b) => b.ok) ? ' & banned' : ' (ban failed)') : '';
-  toast(`AI-Ban: ${names} ${skipped ? 'skipped' : 'skip N/A'}${banNote}`);
+  toast(`Ammit: ${names} ${skipped ? 'skipped' : 'skip N/A'}${banNote}`);
+}
+
+// See content.js: cache holds FEATURES; verdicts derive from the current
+// scorer + threshold at decision time. fv-mismatched/legacy entries re-extract.
+const cachedVerdict = (entry) =>
+  entry?.features && entry.fv === ammit.FEATURES_VERSION
+    ? ammit.scoreFeatures(entry.features, state.aiThreshold)
+    : null;
+
+// Heuristic verdict acts on the artist's own (real) spotifyId → bannable.
+function actOnAiVerdict(artist, res, trackId, fresh) {
+  if (state.heuristicAuto) nuke([{ ...artist, ban: true }], trackId);
+  else if (fresh) toast(`Ammit: "${artist.name}" looks AI (score ${res.score}) — confirm in the popup`);
 }
 
 async function evaluateArtist(artist, trackId) {
   const cid = artist.spotifyId;
-  const cached = state.verdictCache[cid];
+  const cached = cachedVerdict(state.verdictCache[cid]);
   if (cached) {
-    // Heuristic verdict acts on the artist's own (real) spotifyId → bannable.
-    if (cached.verdict === 'ai') nuke([{ ...artist, ban: true }], trackId);
+    if (cached.verdict === 'ai') actOnAiVerdict(artist, cached, trackId, false);
     return;
   }
   if (state.inflight.has(cid)) return;
@@ -187,15 +216,15 @@ async function evaluateArtist(artist, trackId) {
       return;
     }
     features.mbPresent = await chrome.runtime.sendMessage({ type: 'mb-lookup', name: features.name ?? artist.name });
-    const res = ytmAiban.scoreFeatures(features);
-    const entry = { verdict: res.verdict, score: res.score, reasons: res.reasons, name: features.name, ts: Date.now() };
+    const res = ammit.scoreFeatures(features, state.aiThreshold);
+    const entry = { name: features.name, platform: 'sp', features, fv: ammit.FEATURES_VERSION, ts: Date.now() };
     console.log(TAG, 'heuristic verdict:', artist.name, JSON.stringify(res));
 
     state.verdictCache[cid] = entry;
     // Persist through the background SW (single serialized writer).
     chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
 
-    if (entry.verdict === 'ai') nuke([{ ...artist, ban: true }], trackId);
+    if (res.verdict === 'ai') actOnAiVerdict(artist, res, trackId, true);
   } catch (e) {
     console.warn(TAG, 'heuristic failed for', artist.name, String(e));
   } finally {
@@ -204,8 +233,11 @@ async function evaluateArtist(artist, trackId) {
 }
 
 async function loadState() {
-  const data = await chrome.storage.local.get(['enabled', 'blocklist', 'userBlocklist', 'whitelist', 'verdictCache']);
+  const data = await chrome.storage.local.get(['enabled', 'aiThreshold', 'heuristicAuto', 'actionFull', 'blocklist', 'userBlocklist', 'whitelist', 'verdictCache']);
   state.enabled = data.enabled ?? true;
+  state.aiThreshold = data.aiThreshold ?? ammit.DEFAULT_AI_THRESHOLD;
+  state.heuristicAuto = data.heuristicAuto ?? false;
+  state.actionFull = data.actionFull ?? false;
   state.whitelist = { channelIds: [], names: [], spotifyIds: [], ...(data.whitelist ?? {}) };
   state.verdictCache = data.verdictCache ?? {};
   buildIndex(data.blocklist, data.userBlocklist);
@@ -216,13 +248,16 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   if (changes.whitelist) state.whitelist = { channelIds: [], names: [], spotifyIds: [], ...changes.whitelist.newValue };
   if (changes.enabled) state.enabled = changes.enabled.newValue;
+  if (changes.aiThreshold) state.aiThreshold = changes.aiThreshold.newValue ?? ammit.DEFAULT_AI_THRESHOLD;
+  if (changes.heuristicAuto) state.heuristicAuto = changes.heuristicAuto.newValue ?? false;
+  if (changes.actionFull) state.actionFull = changes.actionFull.newValue ?? false;
   if (changes.verdictCache) state.verdictCache = changes.verdictCache.newValue ?? {};
   if (changes.blocklist || changes.userBlocklist) {
     const data = await chrome.storage.local.get(['blocklist', 'userBlocklist']);
     buildIndex(data.blocklist, data.userBlocklist);
   }
   // Re-evaluate only on rule changes — not on our own verdictCache writes.
-  if (changes.blocklist || changes.userBlocklist || changes.whitelist || changes.enabled) {
+  if (changes.blocklist || changes.userBlocklist || changes.whitelist || changes.enabled || changes.aiThreshold || changes.heuristicAuto) {
     state.lastKey = null;
     onChange();
   }
@@ -238,7 +273,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const blocked = cur.artists.find((a) => matchOne(a) && !isWhitelisted(a));
     if (blocked) verdictInfo = { verdict: 'blocklist' };
     else if (isWhitelisted(primary)) verdictInfo = { verdict: 'whitelisted' };
-    else if (primary.spotifyId && state.verdictCache[primary.spotifyId]) verdictInfo = state.verdictCache[primary.spotifyId];
+    else if (primary.spotifyId) {
+      const res = cachedVerdict(state.verdictCache[primary.spotifyId]);
+      if (res) verdictInfo = { verdict: res.verdict, score: res.score, reasons: res.reasons };
+    }
   }
   sendResponse({ track: cur ? { title: cur.title, artists: cur.artists } : null, primary, verdictInfo });
 });

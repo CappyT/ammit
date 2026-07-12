@@ -8,7 +8,7 @@ const page = browser.contexts().flatMap((c) => c.pages())
   .find((p) => p.url().startsWith('https://music.youtube.com'));
 if (!page) { console.error('no ytm tab'); process.exit(2); }
 
-page.on('console', (m) => { if (m.text().includes('[ytm-aiban]')) console.log('CONSOLE:', m.text()); });
+page.on('console', (m) => { if (m.text().includes('[ammit]')) console.log('CONSOLE:', m.text()); });
 
 await page.goto(`https://music.youtube.com/channel/${ARTIST}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(3000);

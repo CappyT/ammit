@@ -1,4 +1,4 @@
-// YTM AI-Ban content script.
+// Ammit content script.
 // Watches the player bar for track changes; when the current artist matches
 // the blocklist (or the heuristic scorer says AI), dislikes the track and
 // skips to the next one.
@@ -17,7 +17,7 @@
 // mid-transition read (or an async verdict landing after a natural track
 // change) would dislike the wrong, innocent song.
 
-const TAG = '[ytm-aiban]';
+const TAG = '[ammit]';
 const STABILITY_MS = 250; // two identical reads this far apart = not mid-transition
 const SKIP_DELAY_MS = 400; // let the dislike request fire before navigating away
 
@@ -32,6 +32,9 @@ const SEL = {
 
 let state = {
   enabled: true,
+  aiThreshold: ammit.DEFAULT_AI_THRESHOLD,
+  heuristicAuto: false, // blocklist-first: heuristic verdicts act only when opted in
+  actionFull: false, // default skip-only; dislike is opt-in
   whitelist: { channelIds: [], names: [] },
   byChannelId: new Map(),
   byName: new Map(),
@@ -134,13 +137,25 @@ function toast(msg) {
   setTimeout(() => el.remove(), 4000);
 }
 
-// Dislike + delayed skip, both gated on the player bar still showing the
-// condemned track. If the track changed in the meantime (natural end, user
-// action, async verdict landing late), do nothing — never touch an innocent song.
+// Skip (default) or dislike + delayed skip (actionFull opt-in), gated on the
+// player bar still showing the condemned track. If the track changed in the
+// meantime (natural end, user action, async verdict landing late), do nothing —
+// never touch an innocent song.
 function nuke(label, expectedKey) {
   const now = getCurrentTrack();
   if (!now || trackKey(now) !== expectedKey) {
     console.warn(TAG, 'nuke aborted — track changed before dislike');
+    return;
+  }
+  // The user's explicit LIKE on this track outranks any verdict — never
+  // dislike/skip a liked track (a stale verdict once disliked a liked OST song).
+  if (document.querySelector(SEL.likeRenderer)?.getAttribute('like-status') === 'LIKE') {
+    console.log(TAG, 'nuke vetoed — track is liked by the user');
+    return;
+  }
+  if (!state.actionFull) {
+    const skipped = clickNext();
+    toast(`${label} ${skipped ? 'skipped' : '(skip failed, see console)'}`);
     return;
   }
   const disliked = clickDislike();
@@ -177,8 +192,8 @@ async function onPossibleTrackChange() {
 
     const v = verdict(t2);
     if (v.blocked) {
-      console.log(TAG, 'BLOCKED artist:', v.artist.name, '→ dislike + skip');
-      nuke(`AI-Ban: "${v.artist.name}"`, key);
+      console.log(TAG, 'BLOCKED artist:', v.artist.name, '→', state.actionFull ? 'dislike + skip' : 'skip');
+      nuke(`Ammit: "${v.artist.name}"`, key);
       return;
     }
 
@@ -190,26 +205,41 @@ async function onPossibleTrackChange() {
   }
 }
 
+// A cache entry holds FEATURES (facts); score and verdict are derived here from
+// the current scorer + threshold, so recalibrations apply retroactively. Entries
+// from older extractors (fv mismatch, or legacy score-only) are re-extracted.
+const cachedVerdict = (entry) =>
+  entry?.features && entry.fv === ammit.FEATURES_VERSION
+    ? ammit.scoreFeatures(entry.features, state.aiThreshold)
+    : null;
+
+function actOnAiVerdict(artist, res, expectedKey, fresh) {
+  if (state.heuristicAuto) {
+    console.log(TAG, 'HEURISTIC block:', artist.name, 'score', res.score);
+    nuke(`Ammit (heuristic ${res.score}): "${artist.name}"`, expectedKey);
+  } else if (fresh) {
+    // Blocklist-first default: flag once, let the user confirm from the popup.
+    toast(`Ammit: "${artist.name}" looks AI (score ${res.score}) — confirm in the popup`);
+  }
+}
+
 async function evaluateArtist(artist, expectedKey) {
   const cid = artist.channelId;
-  const cached = state.verdictCache[cid];
+  const cached = cachedVerdict(state.verdictCache[cid]);
   if (cached) {
-    if (cached.verdict === 'ai') {
-      console.log(TAG, 'HEURISTIC block (cached):', artist.name, 'score', cached.score);
-      nuke(`AI-Ban (heuristic ${cached.score}): "${artist.name}"`, expectedKey);
-    }
+    if (cached.verdict === 'ai') actOnAiVerdict(artist, cached, expectedKey, false);
     return;
   }
   if (state.inflight.has(cid)) return;
   state.inflight.add(cid);
   try {
-    const features = await ytmAiban.extractFeatures(cid);
+    const features = await ammit.extractFeatures(cid);
     features.mbPresent = await chrome.runtime.sendMessage({
       type: 'mb-lookup',
       name: features.name ?? artist.name,
     });
-    const res = ytmAiban.scoreFeatures(features);
-    const entry = { verdict: res.verdict, score: res.score, reasons: res.reasons, name: features.name, ts: Date.now() };
+    const res = ammit.scoreFeatures(features, state.aiThreshold);
+    const entry = { name: features.name, platform: 'yt', features, fv: ammit.FEATURES_VERSION, ts: Date.now() };
     console.log(TAG, 'heuristic verdict:', artist.name, JSON.stringify(res));
 
     state.verdictCache[cid] = entry;
@@ -217,10 +247,7 @@ async function evaluateArtist(artist, expectedKey) {
     // so concurrent writes from other tabs don't clobber the cache.
     chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
 
-    if (entry.verdict === 'ai') {
-      console.log(TAG, 'HEURISTIC block:', artist.name, 'score', entry.score);
-      nuke(`AI-Ban (heuristic ${entry.score}): "${artist.name}"`, expectedKey);
-    }
+    if (res.verdict === 'ai') actOnAiVerdict(artist, res, expectedKey, true);
   } catch (e) {
     console.warn(TAG, 'heuristic failed for', artist.name, String(e));
   } finally {
@@ -229,8 +256,11 @@ async function evaluateArtist(artist, expectedKey) {
 }
 
 async function loadState() {
-  const data = await chrome.storage.local.get(['enabled', 'blocklist', 'userBlocklist', 'whitelist', 'verdictCache']);
+  const data = await chrome.storage.local.get(['enabled', 'aiThreshold', 'heuristicAuto', 'actionFull', 'blocklist', 'userBlocklist', 'whitelist', 'verdictCache']);
   state.enabled = data.enabled ?? true;
+  state.aiThreshold = data.aiThreshold ?? ammit.DEFAULT_AI_THRESHOLD;
+  state.heuristicAuto = data.heuristicAuto ?? false;
+  state.actionFull = data.actionFull ?? false;
   state.whitelist = data.whitelist ?? { channelIds: [], names: [] };
   state.verdictCache = data.verdictCache ?? {};
   buildIndex(data.blocklist, data.userBlocklist);
@@ -246,7 +276,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (primary) {
     if (isWhitelisted(primary)) verdictInfo = { verdict: 'whitelisted' };
     else if (matchBlocklist(primary)) verdictInfo = { verdict: 'blocklist' };
-    else if (primary.channelId && state.verdictCache[primary.channelId]) verdictInfo = state.verdictCache[primary.channelId];
+    else if (primary.channelId) {
+      const res = cachedVerdict(state.verdictCache[primary.channelId]);
+      if (res) verdictInfo = { verdict: res.verdict, score: res.score, reasons: res.reasons };
+    }
   }
   sendResponse({ track, primary, verdictInfo });
 });
@@ -255,6 +288,9 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   if (area !== 'local') return;
   if (changes.whitelist) state.whitelist = changes.whitelist.newValue;
   if (changes.enabled) state.enabled = changes.enabled.newValue;
+  if (changes.aiThreshold) state.aiThreshold = changes.aiThreshold.newValue ?? ammit.DEFAULT_AI_THRESHOLD;
+  if (changes.heuristicAuto) state.heuristicAuto = changes.heuristicAuto.newValue ?? false;
+  if (changes.actionFull) state.actionFull = changes.actionFull.newValue ?? false;
   if (changes.verdictCache) state.verdictCache = changes.verdictCache.newValue ?? {};
   if (changes.blocklist || changes.userBlocklist) {
     const data = await chrome.storage.local.get(['blocklist', 'userBlocklist']);
@@ -262,7 +298,7 @@ chrome.storage.onChanged.addListener(async (changes, area) => {
   }
   // Re-evaluate the current track only when the rules changed — NOT on our own
   // verdictCache/mbCache writes, which land at racy moments (mid-transition).
-  if (changes.blocklist || changes.userBlocklist || changes.whitelist || changes.enabled) {
+  if (changes.blocklist || changes.userBlocklist || changes.whitelist || changes.enabled || changes.aiThreshold || changes.heuristicAuto) {
     state.lastTrackKey = null;
     onPossibleTrackChange();
   }

@@ -4,7 +4,7 @@
 // We sniff it by wrapping window.fetch, then perform the ban here and bridge
 // results to the isolated content script via window.postMessage.
 (() => {
-  const NS = 'ytm-aiban-spotify';
+  const NS = 'ammit-spotify';
   const BAN_ENDPOINT = 'https://spclient.wg.spotify.com/collection/v2/write?market=from_token';
 
   const PATHFINDER = 'https://api-partner.spotify.com/pathfinder/v2/query';
@@ -117,6 +117,10 @@
         releasesPerMonth: activeMonths ? totalReleases / activeMonths : null,
         hasDescription: bio.trim().length > 0,
         aiKeyword: /\bsuno\b|\budio\b|ai[ -]generated|generative ai|created with ai/i.test(bio + ' ' + a.profile.name),
+        // Real-world footprint (concerts/merch): scoreFeatures vetoes an 'ai'
+        // verdict when present — zero on every confirmed-AI calibration sample.
+        concerts: a.goods?.concerts?.totalCount ?? a.goods?.events?.concerts?.totalCount ?? null,
+        merch: a.goods?.merch?.totalCount ?? a.goods?.merch?.items?.length ?? null,
       };
     } catch (e) {
       return { _err: String(e) };
@@ -134,5 +138,5 @@
     window.postMessage({ ns: NS, dir: 'res', id, payload }, '*');
   });
 
-  console.log('[ytm-aiban] spotify main-world bridge ready');
+  console.log('[ammit] spotify main-world bridge ready');
 })();

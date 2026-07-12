@@ -30,7 +30,7 @@ await page.waitForTimeout(400);
 let world = null;
 for (const c of contexts) {
   const { result } = await session.send('Runtime.evaluate', {
-    expression: 'typeof bridge === "function" && typeof ytmAiban === "object"',
+    expression: 'typeof bridge === "function" && typeof ammit === "object"',
     contextId: c.id, returnByValue: true,
   }).catch(() => ({ result: {} }));
   if (result.value === true) { world = c.id; break; }
@@ -46,7 +46,7 @@ for (const [label, name, id] of CASES) {
     const f = await bridge('features', ${JSON.stringify(id)});
     if (f._err) return { err: f._err };
     f.mbPresent = await chrome.runtime.sendMessage({ type: 'mb-lookup', name: f.name });
-    const s = ytmAiban.scoreFeatures(f);
+    const s = ammit.scoreFeatures(f);
     return { name: f.name, subs: f.subscribers, ml: f.monthlyListeners, rel: f.totalReleases, share: f.share2024plus, mb: f.mbPresent, score: s.score, verdict: s.verdict, reasons: s.reasons };
   })()`);
   if (out?.err) { console.log(`${label} ${name}: ERR ${out.err}`); continue; }

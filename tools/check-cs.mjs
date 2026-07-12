@@ -6,8 +6,8 @@ const page = pages.find((p) => p.url().startsWith('https://music.youtube.com'));
 if (!page) { console.error('no ytm tab'); process.exit(2); }
 
 const logs = [];
-page.on('console', (m) => { if (m.text().includes('[ytm-aiban]')) logs.push(m.text()); });
+page.on('console', (m) => { if (m.text().includes('[ammit]')) logs.push(m.text()); });
 await page.reload({ waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(5000);
-console.log(logs.length ? logs.join('\n') : 'NO ytm-aiban logs captured');
+console.log(logs.length ? logs.join('\n') : 'NO ammit logs captured');
 await browser.close();

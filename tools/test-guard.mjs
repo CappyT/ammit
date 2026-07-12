@@ -9,7 +9,7 @@ const REAL_ARTIST = 'UChf_r1xObvlYS_ezGw_POQw'; // Verdena
 const browser = await chromium.connectOverCDP('http://localhost:9222');
 const ctx = browser.contexts()[0];
 const page = ctx.pages().find((p) => p.url().startsWith('https://music.youtube.com'));
-page.on('console', (m) => { if (m.text().includes('[ytm-aiban]')) console.log('CONSOLE:', m.text()); });
+page.on('console', (m) => { if (m.text().includes('[ammit]')) console.log('CONSOLE:', m.text()); });
 
 await page.goto(`https://music.youtube.com/channel/${REAL_ARTIST}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(2500);
