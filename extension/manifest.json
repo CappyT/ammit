@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Ammit",
-  "version": "0.4.0",
-  "description": "Ammit devours AI-generated music: skips (and optionally dislikes or bans) AI artists on YouTube Music and Spotify.",
+  "version": "0.5.1",
+  "description": "__MSG_appDesc__",
+  "default_locale": "en",
   "permissions": ["storage", "alarms", "declarativeNetRequest"],
   "host_permissions": [
     "https://music.youtube.com/*",
@@ -18,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["https://music.youtube.com/*"],
-      "js": ["src/heuristics.js", "src/content.js"],
+      "js": ["src/heuristics.js", "src/widget.js", "src/content.js"],
       "run_at": "document_idle"
     },
     {
@@ -29,7 +30,7 @@
     },
     {
       "matches": ["https://open.spotify.com/*"],
-      "js": ["src/heuristics.js", "src/spotify-content.js"],
+      "js": ["src/heuristics.js", "src/widget.js", "src/spotify-content.js"],
       "run_at": "document_idle"
     }
   ],

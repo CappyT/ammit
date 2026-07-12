@@ -102,14 +102,70 @@ function cacheVerdict(key, entry) {
 // --- Community reporting (docs/crowdsourcing-v2.md) ---
 // POST to the configured report API; the server replies with CORS headers so
 // no host permission is needed. No-op until the user sets a reportUrl.
+
+// Server-driven dials (PoW difficulty, sampling): GET <base>/v1/config,
+// cached 10 minutes. The server can tighten anti-abuse without an extension
+// release. Fail-open with safe defaults when unreachable.
+async function backendConfig(reportUrl) {
+  const base = reportUrl.replace(/\/v1\/reports.*$/, '');
+  const { backendCfg } = await chrome.storage.local.get('backendCfg');
+  if (backendCfg?.base === base && Date.now() - backendCfg.ts < 600e3) return backendCfg;
+  try {
+    const res = await fetch(base + '/v1/config');
+    const j = await res.json();
+    const cfg = {
+      base,
+      bits: j.pow?.bits ?? 16,
+      ttlSec: j.pow?.ttlSec ?? 300,
+      sampling: j.sampling ?? 1,
+      ts: Date.now(),
+    };
+    await chrome.storage.local.set({ backendCfg: cfg });
+    return cfg;
+  } catch {
+    return { base, bits: 16, sampling: 1, ts: 0 };
+  }
+}
+
+const leadingZeroBits = (bytes) => {
+  let n = 0;
+  for (const b of bytes) {
+    if (b === 0) { n += 8; continue; }
+    n += Math.clz32(b) - 24;
+    break;
+  }
+  return n;
+};
+
+// Stateless hashcash the server requires on every report:
+// sha256(installId|artistId|ts|nonce) with >= bits leading zero bits.
+async function mintPow(installId, artistId, bits) {
+  const ts = Math.floor(Date.now() / 1000);
+  const enc = new TextEncoder();
+  for (let nonce = 0; ; nonce++) {
+    const digest = await crypto.subtle.digest('SHA-256', enc.encode(`${installId}|${artistId}|${ts}|${nonce}`));
+    if (leadingZeroBits(new Uint8Array(digest)) >= bits) return `${ts}:${nonce}`;
+  }
+}
+
+// Deterministic sampling: hash(installId) in [0,1) — stable per install, so
+// the server can shrink report volume fleet-wide via /v1/config.
+async function samplingSlot(installId) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(installId));
+  return new DataView(digest).getUint32(0) / 2 ** 32;
+}
+
 async function submitReport(payload) {
   const { reportUrl, contribute, installId } = await chrome.storage.local.get(['reportUrl', 'contribute', 'installId']);
   if (!reportUrl || contribute === false) return { ok: false, reason: 'reporting disabled' };
   if (!payload?.artistId) return { ok: false, reason: 'no artist id' }; // name-only: server would reject
   try {
+    const cfg = await backendConfig(reportUrl);
+    if ((await samplingSlot(installId)) >= cfg.sampling) return { ok: true, sampledOut: true };
+    const pow = await mintPow(installId, payload.artistId, cfg.bits);
     const res = await fetch(reportUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Ammit-Pow': pow },
       body: JSON.stringify({ ...payload, installId, extVersion: chrome.runtime.getManifest().version }),
     });
     return { ok: res.ok, status: res.status };
