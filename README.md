@@ -165,23 +165,17 @@ the service worker also re-syncs on browser start when older than 24h).
 
 ## Community blocklist (v2)
 
-Design: [docs/crowdsourcing-v2.md](docs/crowdsourcing-v2.md). Implemented MVP:
+Design: [docs/crowdsourcing-v2.md](docs/crowdsourcing-v2.md). The backend
+lives in its own repo — **[CappyT/ammit-backend](https://github.com/CappyT/ammit-backend)**
+(Go, pluggable sqlite/postgres, DoS-hardened, mandatory proof-of-work) — with
+k8s manifests and a docker-compose for non-Kubernetes hosting.
 
-- `server/server.mjs` — zero-dependency report API (node:sqlite): ingestion
-  with per-install/per-IP caps, server-side evidence re-scoring (reports whose
-  feature snapshot doesn't look like AI can never auto-promote — the
-  anti-brigading guard), promotion thresholds (≥3 installs, ≥3 IP /24 buckets,
-  ≥48h, `not_ai` minority) to a `community` tier, admin endpoints for human
-  promotion to `confirmed`, artifact publishing (ETag + max-age, optional git
-  contents-API push).
-- Extension: `contribute reports` toggle + report API URL in the popup; Block /
-  Not AI (review list and current-track buttons) also submit an anonymous
-  report (artist ids + feature snapshot + random install id). Spotify ban now
-  requires `confirmed` confidence — `suspected` (imported lists) and
-  `community` (auto-promoted) entries skip only.
-- `deploy/` — Dockerfile (no npm deps), kustomize base (PVC + ExternalSecret +
-  ServiceMonitor), cloudflared tunnel, Gitea Actions workflow, and the
-  Cloudflare free-tier setup steps.
+Extension side: `contribute reports` toggle + report API URL in the popup;
+Block / Not AI (review list, current-track buttons and the on-page badge) also
+submit an anonymous report (artist ids + feature snapshot + random install
+id) carrying the required PoW; the client follows the server's `/v1/config`
+dials (difficulty, sampling). Spotify ban requires `confirmed` confidence —
+`suspected` (imported lists) and `community` (auto-promoted) entries skip only.
 
 ## Roadmap
 
