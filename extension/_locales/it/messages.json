@@ -20,7 +20,7 @@
   "fullAction": { "message": "Azione completa (dislike / ban)" },
   "fullActionHint": { "message": "Off: i brani bloccati vengono solo saltati" },
   "contribute": { "message": "Invia segnalazioni anonime" },
-  "contributeHint": { "message": "Solo id artista e punteggio, id installazione casuale" },
+  "contributeHint": { "message": "Opt-in. In coda e inviate a lotti orari — solo id artista e punteggio, id installazione casuale" },
   "reportUrlPh": { "message": "URL API segnalazioni (…/v1/reports)" },
   "syncUrlPh": { "message": "URL blocklist remota (raw JSON)" },
   "syncNow": { "message": "Sincronizza" },

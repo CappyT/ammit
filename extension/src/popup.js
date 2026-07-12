@@ -133,7 +133,7 @@ async function refresh() {
   $('enabled').checked = data.enabled ?? true;
   $('heuristic-auto').checked = data.heuristicAuto ?? false;
   $('action-full').checked = data.actionFull ?? false;
-  $('contribute').checked = data.contribute ?? true;
+  $('contribute').checked = data.contribute ?? false;
   if (document.activeElement !== $('report-url')) $('report-url').value = data.reportUrl ?? '';
   const threshold = data.aiThreshold ?? ammit.DEFAULT_AI_THRESHOLD;
   if (document.activeElement !== $('threshold')) $('threshold').value = threshold;

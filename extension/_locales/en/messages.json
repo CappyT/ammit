@@ -20,7 +20,7 @@
   "fullAction": { "message": "Full action (dislike / ban)" },
   "fullActionHint": { "message": "Off: blocked tracks are only skipped" },
   "contribute": { "message": "Send anonymous reports" },
-  "contributeHint": { "message": "Artist ids and score only, random install id" },
+  "contributeHint": { "message": "Opt-in. Queued and sent in hourly batches — artist ids and score only, random install id" },
   "reportUrlPh": { "message": "Report API URL (…/v1/reports)" },
   "syncUrlPh": { "message": "Remote blocklist URL (raw JSON)" },
   "syncNow": { "message": "Sync now" },

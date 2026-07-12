@@ -21,11 +21,13 @@ chrome.runtime.onInstalled.addListener(async () => {
   console.log('[ammit] seeded blocklist:', seed.stats);
   installMbUaRule();
   scheduleSync();
+  scheduleFlush();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   installMbUaRule();
   scheduleSync();
+  scheduleFlush();
   maybeSync();
 });
 
@@ -155,23 +157,64 @@ async function samplingSlot(installId) {
   return new DataView(digest).getUint32(0) / 2 ** 32;
 }
 
-async function submitReport(payload) {
-  const { reportUrl, contribute, installId } = await chrome.storage.local.get(['reportUrl', 'contribute', 'installId']);
-  if (!reportUrl || contribute === false) return { ok: false, reason: 'reporting disabled' };
+// Reporting is strictly OPT-IN (contribute must be explicitly true) and
+// BATCHED: Block/Not-AI clicks only queue locally; a periodic alarm flushes
+// the queue — one config fetch and one PoW per queued report per flush, no
+// network chatter on user actions.
+const FLUSH_ALARM = 'ammit-report-flush';
+const FLUSH_PERIOD_MIN = 60;
+const MAX_ATTEMPTS = 5;
+
+async function enqueueReport(payload) {
+  const { contribute, reportUrl } = await chrome.storage.local.get(['contribute', 'reportUrl']);
+  if (contribute !== true || !reportUrl) return { ok: false, reason: 'reporting disabled (opt-in)' };
   if (!payload?.artistId) return { ok: false, reason: 'no artist id' }; // name-only: server would reject
-  try {
-    const cfg = await backendConfig(reportUrl);
-    if ((await samplingSlot(installId)) >= cfg.sampling) return { ok: true, sampledOut: true };
-    const pow = await mintPow(installId, payload.artistId, cfg.bits);
-    const res = await fetch(reportUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Ammit-Pow': pow },
-      body: JSON.stringify({ ...payload, installId, extVersion: chrome.runtime.getManifest().version }),
-    });
-    return { ok: res.ok, status: res.status };
-  } catch (e) {
-    return { ok: false, reason: String(e) };
+  const { reportQueue = [] } = await chrome.storage.local.get('reportQueue');
+  const key = (p) => `${p.platform}:${p.artistId}:${p.action}`;
+  if (!reportQueue.some((q) => key(q.payload) === key(payload))) {
+    reportQueue.push({ payload, attempts: 0, ts: Date.now() });
+    await chrome.storage.local.set({ reportQueue });
   }
+  return { ok: true, queued: reportQueue.length };
+}
+
+async function flushReports() {
+  const { contribute, reportUrl, installId, reportQueue = [] } =
+    await chrome.storage.local.get(['contribute', 'reportUrl', 'installId', 'reportQueue']);
+  if (contribute !== true || !reportUrl || reportQueue.length === 0) return { ok: true, flushed: 0 };
+
+  const cfg = await backendConfig(reportUrl);
+  // Sampled-out installs drop their queue entirely (deterministic per install,
+  // served by the server via /v1/config to shrink fleet-wide volume).
+  if ((await samplingSlot(installId)) >= cfg.sampling) {
+    await chrome.storage.local.set({ reportQueue: [] });
+    return { ok: true, flushed: 0, sampledOut: true };
+  }
+
+  const remaining = [];
+  let flushed = 0;
+  for (const item of reportQueue) {
+    try {
+      const pow = await mintPow(installId, item.payload.artistId, cfg.bits);
+      const res = await fetch(reportUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Ammit-Pow': pow },
+        body: JSON.stringify({ ...item.payload, installId, extVersion: chrome.runtime.getManifest().version }),
+      });
+      if (res.ok) { flushed++; continue; }
+      if (res.status === 400) continue; // malformed will never succeed — drop
+      throw new Error(`http ${res.status}`);
+    } catch {
+      if (++item.attempts < MAX_ATTEMPTS) remaining.push(item);
+    }
+  }
+  await chrome.storage.local.set({ reportQueue: remaining });
+  console.log('[ammit] report flush:', flushed, 'sent,', remaining.length, 'kept');
+  return { ok: true, flushed, kept: remaining.length };
+}
+
+function scheduleFlush() {
+  chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: FLUSH_PERIOD_MIN, delayInMinutes: 1 });
 }
 
 // --- Remote blocklist sync (fix #4: periodic, not only on startup) ---
@@ -203,6 +246,7 @@ function scheduleSync() {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === SYNC_ALARM) maybeSync();
+  if (alarm.name === FLUSH_ALARM) flushReports();
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -219,7 +263,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'submit-report') {
-    submitReport(msg.payload).then(sendResponse);
+    enqueueReport(msg.payload).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'flush-reports') {
+    flushReports().then(sendResponse);
     return true;
   }
 });
