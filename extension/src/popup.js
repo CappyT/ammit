@@ -86,7 +86,11 @@ function renderReview(derived) {
     badge.title = res.reasons.join('\n');
     const name = document.createElement('span');
     name.className = 'name';
-    name.innerHTML = `${entry.name ?? key} <small>${entry.platform === 'sp' ? 'Spotify' : 'YT Music'}</small>`;
+    // textContent, not innerHTML: entry.name is page-controlled (artist name).
+    name.textContent = `${entry.name ?? key} `;
+    const platformTag = document.createElement('small');
+    platformTag.textContent = entry.platform === 'sp' ? 'Spotify' : 'YT Music';
+    name.append(platformTag);
     name.title = res.reasons.join('\n');
     const ban = document.createElement('button');
     ban.className = 'btn danger';
