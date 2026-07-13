@@ -2,6 +2,10 @@
 // so alias it: every `await chrome.*` below then works on both browsers.
 if (typeof browser !== 'undefined') globalThis.chrome = browser;
 
+// config.js defines AMMIT_DEFAULTS: the firefox event page loads it via the
+// manifest's background.scripts array, chrome's classic worker loads it here.
+if (typeof AMMIT_DEFAULTS === 'undefined' && typeof importScripts === 'function') importScripts('config.js');
+
 const SEED_URL = chrome.runtime.getURL('data/blocklist.json');
 const SYNC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SYNC_ALARM = 'ammit-sync';
@@ -26,6 +30,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   installMbUaRule();
   scheduleSync();
   scheduleFlush();
+  maybeSync(); // fresh installs pull the community blocklist right away
 });
 
 // Manifest content scripts are NOT reinjected on extension reload/update/
@@ -197,8 +202,8 @@ const FLUSH_PERIOD_MIN = 60;
 const MAX_ATTEMPTS = 5;
 
 async function enqueueReport(payload) {
-  const { contribute, reportUrl } = await chrome.storage.local.get(['contribute', 'reportUrl']);
-  if (contribute !== true || !reportUrl) return { ok: false, reason: 'reporting disabled (opt-in)' };
+  const { contribute } = await chrome.storage.local.get('contribute');
+  if (contribute !== true) return { ok: false, reason: 'reporting disabled (opt-in)' };
   if (!payload?.artistId) return { ok: false, reason: 'no artist id' }; // name-only: server would reject
   const { reportQueue = [] } = await chrome.storage.local.get('reportQueue');
   const key = (p) => `${p.platform}:${p.artistId}:${p.action}`;
@@ -210,8 +215,9 @@ async function enqueueReport(payload) {
 }
 
 async function flushReports() {
-  const { contribute, reportUrl, installId, reportQueue = [] } =
+  const { contribute, reportUrl: override, installId, reportQueue = [] } =
     await chrome.storage.local.get(['contribute', 'reportUrl', 'installId', 'reportQueue']);
+  const reportUrl = override || AMMIT_DEFAULTS.reportUrl;
   if (contribute !== true || !reportUrl || reportQueue.length === 0) return { ok: true, flushed: 0 };
 
   const cfg = await backendConfig(reportUrl);
@@ -250,7 +256,8 @@ function scheduleFlush() {
 
 // --- Remote blocklist sync (fix #4: periodic, not only on startup) ---
 async function syncBlocklist() {
-  const { syncUrl } = await chrome.storage.local.get('syncUrl');
+  const { syncUrl: override } = await chrome.storage.local.get('syncUrl');
+  const syncUrl = override || AMMIT_DEFAULTS.syncUrl;
   if (!syncUrl) return { ok: false, reason: 'no syncUrl configured' };
   try {
     const res = await fetch(syncUrl, { cache: 'no-cache' });
@@ -265,8 +272,8 @@ async function syncBlocklist() {
 }
 
 async function maybeSync() {
-  const { lastSync = 0, syncUrl } = await chrome.storage.local.get(['lastSync', 'syncUrl']);
-  if (syncUrl && Date.now() - lastSync > SYNC_MAX_AGE_MS) syncBlocklist();
+  const { lastSync = 0 } = await chrome.storage.local.get('lastSync');
+  if (Date.now() - lastSync > SYNC_MAX_AGE_MS) syncBlocklist();
 }
 
 function scheduleSync() {

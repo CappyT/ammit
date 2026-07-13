@@ -12,6 +12,11 @@ for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el
 for (const el of document.querySelectorAll('[data-i18n-ph]')) el.placeholder = t(el.dataset.i18nPh);
 for (const el of document.querySelectorAll('[data-i18n-title]')) el.title = t(el.dataset.i18nTitle);
 
+// Baked-in instance defaults as placeholders; stored values are user
+// overrides only (empty field = default).
+$('report-url').placeholder = AMMIT_DEFAULTS.reportUrl;
+$('sync-url').placeholder = AMMIT_DEFAULTS.syncUrl;
+
 // --- views ---
 $('open-settings').addEventListener('click', () => setView(true));
 $('close-settings').addEventListener('click', () => setView(false));
@@ -158,9 +163,9 @@ async function refresh() {
   ]);
   renderReview(derived);
 
-  $('sync-info').textContent = data.syncUrl
-    ? (data.lastSync ? t('lastSync', [new Date(data.lastSync).toLocaleString()]) : t('neverSynced'))
-    : t('noSyncUrl');
+  $('sync-info').textContent = data.lastSync
+    ? t('lastSync', [new Date(data.lastSync).toLocaleString()])
+    : t('neverSynced');
   if (document.activeElement !== $('sync-url')) $('sync-url').value = data.syncUrl ?? '';
 
   const active = await getActiveTab();
