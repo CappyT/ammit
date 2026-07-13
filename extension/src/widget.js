@@ -2,6 +2,11 @@
 // with a verdict-colored ring; click opens a compact panel to block/whitelist
 // the current artist without opening the popup. Shared by both content scripts
 // (isolated world), which own the data and pass state via ammitWidget.update().
+
+// Firefox only returns promises on browser.* (its chrome.* is callback-based),
+// so alias it: every `await chrome.*` below then works on both browsers.
+if (typeof browser !== 'undefined') globalThis.chrome = browser;
+
 var ammitWidget = (() => {
   const COLORS = {
     blocklist: '#e5484d', ai: '#e5484d', unsure: '#f5a524',

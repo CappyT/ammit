@@ -1,9 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Ammit",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "__MSG_appDesc__",
   "default_locale": "en",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ammit@nolicen.se",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": ["websiteContent", "technicalAndInteraction"]
+      }
+    }
+  },
   "permissions": ["storage", "alarms", "declarativeNetRequest", "scripting"],
   "host_permissions": [
     "https://music.youtube.com/*",
@@ -14,7 +24,8 @@
     "https://gist.githubusercontent.com/*"
   ],
   "background": {
-    "service_worker": "src/background.js"
+    "service_worker": "src/background.js",
+    "scripts": ["src/background.js"]
   },
   "content_scripts": [
     {

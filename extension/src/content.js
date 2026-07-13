@@ -22,6 +22,10 @@
 // fresh world where this marker is unset.
 globalThis.__ammitAlive = true;
 
+// Firefox only returns promises on browser.* (its chrome.* is callback-based),
+// so alias it: every `await chrome.*` below then works on both browsers.
+if (typeof browser !== 'undefined') globalThis.chrome = browser;
+
 const TAG = '[ammit]';
 const STABILITY_MS = 250; // two identical reads this far apart = not mid-transition
 const SKIP_DELAY_MS = 400; // let the dislike request fire before navigating away

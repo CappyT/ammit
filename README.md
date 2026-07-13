@@ -3,9 +3,10 @@
 *In Egyptian mythology, Ammit devoured the hearts of impure souls. This one
 devours AI-generated music.*
 
-Chrome extension (MV3) that filters AI-generated music on **YouTube Music** and
-**Spotify** from one shared blocklist: blocked tracks are skipped by default,
-with opt-in escalation to dislike (YTM) and permanent artist-ban (Spotify).
+Browser extension (MV3, Chrome + Firefox ≥128) that filters AI-generated music
+on **YouTube Music** and **Spotify** from one shared blocklist: blocked tracks
+are skipped by default, with opt-in escalation to dislike (YTM) and permanent
+artist-ban (Spotify).
 
 ## How it works — YouTube Music
 
@@ -85,6 +86,22 @@ account's `artistban` set — use a throwaway account. A clean programmatic unba
 endpoint wasn't found (`collection/v2/delete|remove` 404, `write` with `remove`
 400); remove bans from the Spotify UI if needed.
 
+### Firefox
+
+Firefox ≥128 is required (MAIN-world content scripts and
+`scripting.executeScript({world: "MAIN"})`). One codebase serves both browsers:
+the manifest declares both `background.service_worker` (Chrome) and
+`background.scripts` (Firefox event page) plus the AMO-required
+`browser_specific_settings.gecko` block, and each `chrome.*`-using file aliases
+`browser` over `chrome` since Firefox only returns promises on `browser.*`.
+
+```sh
+./tools/launch-firefox.sh   # web-ext run: temporary install, auto-reload on changes
+```
+
+The CDP tooling above (`eval.mjs`, `test-*.mjs`) is Chrome-only; on Firefox use
+the extension debugging console (`about:debugging` → Ammit → Inspect).
+
 ### Wrong-target protection
 
 The player bar exposes no readable track identity (videoId lives in Polymer
@@ -96,7 +113,8 @@ user action, async verdict landing late) nothing is touched. Storage writes the
 extension makes itself (verdict/MusicBrainz caches) no longer retrigger
 evaluation.
 
-The test profile lives in `.chrome-profile/` (gitignored, keeps login).
+The test profiles live in `.chrome-profile/` and `.firefox-profile/`
+(gitignored, keep logins).
 
 ## Verified selectors (2026-07)
 

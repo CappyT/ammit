@@ -1,3 +1,4 @@
 .chrome-profile/
+.firefox-profile/
 node_modules/
 *.log

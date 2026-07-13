@@ -1,3 +1,7 @@
+// Firefox only returns promises on browser.* (its chrome.* is callback-based),
+// so alias it: every `await chrome.*` below then works on both browsers.
+if (typeof browser !== 'undefined') globalThis.chrome = browser;
+
 const $ = (id) => document.getElementById(id);
 const t = (key, subs) => chrome.i18n.getMessage(key, subs) || key;
 let current = null; // { track, primary, verdictInfo }

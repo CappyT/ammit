@@ -14,6 +14,10 @@
 // fresh world where this marker is unset.
 globalThis.__ammitAlive = true;
 
+// Firefox only returns promises on browser.* (its chrome.* is callback-based),
+// so alias it: every `await chrome.*` below then works on both browsers.
+if (typeof browser !== 'undefined') globalThis.chrome = browser;
+
 const TAG = '[ammit/spotify]';
 const NS = 'ammit-spotify';
 

@@ -1,3 +1,7 @@
+// Firefox only returns promises on browser.* (its chrome.* is callback-based),
+// so alias it: every `await chrome.*` below then works on both browsers.
+if (typeof browser !== 'undefined') globalThis.chrome = browser;
+
 const SEED_URL = chrome.runtime.getURL('data/blocklist.json');
 const SYNC_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const SYNC_ALARM = 'ammit-sync';
