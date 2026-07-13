@@ -3,7 +3,7 @@
 *In Egyptian mythology, Ammit devoured the hearts of impure souls. This one
 devours AI-generated music.*
 
-Browser extension (MV3, Chrome + Firefox ≥128) that filters AI-generated music
+Browser extension (MV3, Chrome + Firefox ≥140) that filters AI-generated music
 on **YouTube Music** and **Spotify** from one shared blocklist: blocked tracks
 are skipped by default, with opt-in escalation to dislike (YTM) and permanent
 artist-ban (Spotify).
@@ -88,12 +88,18 @@ endpoint wasn't found (`collection/v2/delete|remove` 404, `write` with `remove`
 
 ### Firefox
 
-Firefox ≥128 is required (MAIN-world content scripts and
-`scripting.executeScript({world: "MAIN"})`). One codebase serves both browsers:
-the manifest declares both `background.service_worker` (Chrome) and
-`background.scripts` (Firefox event page) plus the AMO-required
+Firefox ≥140 is required (`data_collection_permissions` in the manifest; the
+MAIN-world content scripts alone would allow 128). One codebase serves both
+browsers: the repo manifest declares both `background.service_worker` (Chrome)
+and `background.scripts` (Firefox event page) plus the AMO-required
 `browser_specific_settings.gecko` block, and each `chrome.*`-using file aliases
 `browser` over `chrome` since Firefox only returns promises on `browser.*`.
+Store packages are built with a single-browser manifest
+(`node tools/build-manifest.mjs <chrome|firefox>`, restore with git after).
+
+The backend endpoints default to the public instance (`src/config.js`, shown
+as placeholders in the popup); users override them per-install from the popup,
+forks self-hosting the backend edit that one file.
 
 ```sh
 ./tools/launch-firefox.sh   # web-ext run: temporary install, auto-reload on changes
@@ -102,10 +108,13 @@ the manifest declares both `background.service_worker` (Chrome) and
 The CDP tooling above (`eval.mjs`, `test-*.mjs`) is Chrome-only; on Firefox use
 the extension debugging console (`about:debugging` → Ammit → Inspect).
 
-Firefox distribution happens from addons.mozilla.org: tagged releases submit
-the new version to the AMO listed channel for review — needs
-`AMO_JWT_ISSUER`/`AMO_JWT_SECRET` repo secrets from
-[AMO API keys](https://addons.mozilla.org/developers/addon/api/key/).
+Distribution happens from the stores: tagged releases submit the new version
+to the AMO listed channel (`AMO_JWT_ISSUER`/`AMO_JWT_SECRET` repo secrets from
+[AMO API keys](https://addons.mozilla.org/developers/addon/api/key/)) and
+upload+publish to the Chrome Web Store (`CWS_EXTENSION_ID`, `CWS_CLIENT_ID`,
+`CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` secrets — Google Cloud OAuth client
+with the Chrome Web Store API enabled). Jobs skip with a warning when the
+secrets are missing.
 
 ### Wrong-target protection
 
