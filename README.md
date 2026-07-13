@@ -102,9 +102,10 @@ the manifest declares both `background.service_worker` (Chrome) and
 The CDP tooling above (`eval.mjs`, `test-*.mjs`) is Chrome-only; on Firefox use
 the extension debugging console (`about:debugging` → Ammit → Inspect).
 
-Tagged releases attach an AMO-signed `.xpi` (unlisted channel, installable on
-release Firefox) next to the zip — needs `AMO_JWT_ISSUER`/`AMO_JWT_SECRET` repo
-secrets from [AMO API keys](https://addons.mozilla.org/developers/addon/api/key/).
+Firefox distribution happens from addons.mozilla.org: tagged releases submit
+the new version to the AMO listed channel for review — needs
+`AMO_JWT_ISSUER`/`AMO_JWT_SECRET` repo secrets from
+[AMO API keys](https://addons.mozilla.org/developers/addon/api/key/).
 
 ### Wrong-target protection
 
