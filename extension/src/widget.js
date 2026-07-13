@@ -13,7 +13,7 @@ var ammitWidget = (() => {
     human: '#30a46c', whitelisted: '#30a46c', pending: '#8f8f8f', disabled: '#555',
   };
   const CROC = `
-    <svg viewBox="0 0 128 128" width="18" height="18" aria-hidden="true">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="18" height="18" aria-hidden="true">
       <g fill="#d4a017">
         <path d="M14 48Q14 31 32 29L46 28Q56 27 61 33L114 40Q120 42 118 47L64 51L25 53Q15 53 14 48Z"/>
         <path d="M38 53l4.5 10 4.5-10Z"/><path d="M56 52l4.5 10 4.5-10Z"/>
@@ -73,7 +73,9 @@ var ammitWidget = (() => {
       opacity: '.6', transition: 'opacity .15s', padding: '0',
     }, root);
     btn.id = 'ammit-badge';
-    btn.innerHTML = CROC;
+    // DOMParser, not innerHTML: the markup is a static constant, but
+    // addons-linter flags any innerHTML assignment.
+    btn.append(new DOMParser().parseFromString(CROC, 'image/svg+xml').documentElement);
     btn.title = 'Ammit';
     btn.addEventListener('mouseenter', () => (btn.style.opacity = '1'));
     btn.addEventListener('mouseleave', () => { if (panel.style.display === 'none') btn.style.opacity = '.6'; });
