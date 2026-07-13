@@ -24,6 +24,33 @@ chrome.runtime.onInstalled.addListener(async () => {
   scheduleFlush();
 });
 
+// Manifest content scripts are NOT reinjected on extension reload/update/
+// re-enable: the old copies keep their DOM (the widget badge) but every
+// chrome.* call throws "Extension context invalidated", so the badge looks
+// alive and eats clicks. Sweep open tabs on every service-worker start and
+// revive dead ones. Idempotent: a fresh extension life gets a fresh isolated
+// world where the __ammitAlive marker is unset, while live scripts are left
+// alone; only complete tabs are probed (loading tabs get manifest injection).
+async function reviveTabs() {
+  for (const cs of chrome.runtime.getManifest().content_scripts) {
+    let tabs = [];
+    try { tabs = await chrome.tabs.query({ url: cs.matches, status: 'complete' }); } catch { continue; }
+    for (const tab of tabs) {
+      try {
+        if (cs.world === 'MAIN') {
+          // spotify-main survives extension reloads (it holds no chrome.*)
+          // and self-guards against double injection — send unconditionally.
+          await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: cs.js, world: 'MAIN' });
+        } else {
+          const [probe] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => globalThis.__ammitAlive === true });
+          if (!probe?.result) await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: cs.js });
+        }
+      } catch { /* discarded or restricted tab */ }
+    }
+  }
+}
+reviveTabs();
+
 chrome.runtime.onStartup.addListener(() => {
   installMbUaRule();
   scheduleSync();

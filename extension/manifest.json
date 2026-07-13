@@ -4,7 +4,7 @@
   "version": "0.5.2",
   "description": "__MSG_appDesc__",
   "default_locale": "en",
-  "permissions": ["storage", "alarms", "declarativeNetRequest"],
+  "permissions": ["storage", "alarms", "declarativeNetRequest", "scripting"],
   "host_permissions": [
     "https://music.youtube.com/*",
     "https://open.spotify.com/*",

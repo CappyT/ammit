@@ -17,6 +17,11 @@
 // mid-transition read (or an async verdict landing after a natural track
 // change) would dislike the wrong, innocent song.
 
+// Probed by the background's reviveTabs() sweep: set = this isolated world is
+// alive, don't reinject. A stale world (extension reloaded) is a different,
+// fresh world where this marker is unset.
+globalThis.__ammitAlive = true;
+
 const TAG = '[ammit]';
 const STABILITY_MS = 250; // two identical reads this far apart = not mid-transition
 const SKIP_DELAY_MS = 400; // let the dislike request fire before navigating away

@@ -33,6 +33,9 @@ var ammitWidget = (() => {
   }
 
   function build(bottom) {
+    // A previous extension life (reload/update) may have left its widget in the
+    // DOM with dead listeners — replace it, don't stack a second badge.
+    document.getElementById('ammit-widget')?.remove();
     root = el('div', { position: 'fixed', right: '16px', bottom, zIndex: 99998, display: 'none', fontFamily: 'system-ui, sans-serif' });
     root.id = 'ammit-widget';
 
@@ -71,6 +74,10 @@ var ammitWidget = (() => {
     btn.addEventListener('mouseleave', () => { if (panel.style.display === 'none') btn.style.opacity = '.6'; });
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
+      // Context invalidated (extension reloaded/updated under us): every
+      // chrome.* call throws, nothing can work — remove the corpse instead of
+      // presenting a badge that silently swallows clicks.
+      if (!chrome.runtime?.id) { root.remove(); return; }
       panel.style.display === 'none' ? showPanel() : hidePanel();
     });
     document.addEventListener('click', (e) => { if (!root.contains(e.target)) hidePanel(); });

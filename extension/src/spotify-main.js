@@ -4,6 +4,12 @@
 // We sniff it by wrapping window.fetch, then perform the ban here and bridge
 // results to the isolated content script via window.postMessage.
 (() => {
+  // The background reinjects content scripts on extension update; this bridge
+  // survives updates (no chrome.* here), so guard against a second copy
+  // double-wrapping fetch and answering every request twice.
+  if (window.__ammitMainWorld) return;
+  window.__ammitMainWorld = true;
+
   const NS = 'ammit-spotify';
   const BAN_ENDPOINT = 'https://spclient.wg.spotify.com/collection/v2/write?market=from_token';
 

@@ -9,6 +9,11 @@
 // - artist link:  [data-testid=now-playing-widget] a[href*="/artist/"]  (locale prefix, e.g. /intl-it/artist/<id>)
 // - skip:         [data-testid=control-button-skip-forward]
 
+// Probed by the background's reviveTabs() sweep: set = this isolated world is
+// alive, don't reinject. A stale world (extension reloaded) is a different,
+// fresh world where this marker is unset.
+globalThis.__ammitAlive = true;
+
 const TAG = '[ammit/spotify]';
 const NS = 'ammit-spotify';
 
