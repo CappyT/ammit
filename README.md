@@ -197,7 +197,7 @@ the service worker also re-syncs on browser start when older than 24h).
 
 ## Community blocklist (v2)
 
-Design: [docs/crowdsourcing-v2.md](docs/crowdsourcing-v2.md). The backend
+The backend
 lives in its own repo — **[CappyT/ammit-backend](https://github.com/CappyT/ammit-backend)**
 (Go, pluggable sqlite/postgres, DoS-hardened, mandatory proof-of-work) — with
 k8s manifests and a docker-compose for non-Kubernetes hosting.
