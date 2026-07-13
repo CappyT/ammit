@@ -137,7 +137,7 @@ function cacheVerdict(key, entry) {
   return result;
 }
 
-// --- Community reporting (docs/crowdsourcing-v2.md) ---
+// --- Community reporting ---
 // POST to the configured report API; the server replies with CORS headers so
 // no host permission is needed. No-op until the user sets a reportUrl.
 
