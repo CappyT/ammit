@@ -60,6 +60,16 @@ node tools/build-blocklist.mjs
 User data lives in separate storage keys (`userBlocklist`, `whitelist`) and survives
 blocklist rebuilds.
 
+### Credits
+
+The bundled blocklist stands on the shoulders of the people who research and
+maintain these community lists — thank you for the hard work:
+
+- [xoundbyte](https://github.com/xoundbyte) — [soul-over-ai](https://github.com/xoundbyte/soul-over-ai)
+- [surasshu](https://surasshu.com) — [blocklist for AI music on YouTube](https://surasshu.com/blocklist-for-ai-music-on-youtube/)
+- [cevvalkoala](https://github.com/cevvalkoala) — [CevvalYoutubeAIBlocklist](https://github.com/cevvalkoala/CevvalYoutubeAIBlocklist)
+- [eye-wave](https://github.com/eye-wave) — [spotify-ai-blocklist](https://github.com/eye-wave/spotify-ai-blocklist)
+
 ## Development
 
 Branded Chrome ≥137 ignores `--load-extension`; the extension is injected through the
