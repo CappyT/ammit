@@ -209,6 +209,10 @@ id) carrying the required PoW; the client follows the server's `/v1/config`
 dials (difficulty, sampling). Spotify ban requires `confirmed` confidence —
 `suspected` (imported lists) and `community` (auto-promoted) entries skip only.
 
+## License
+
+[GPL-3.0](LICENSE).
+
 ## Roadmap
 
 - Import updated source lists periodically (`tools/build-blocklist.mjs`).
