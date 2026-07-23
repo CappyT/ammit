@@ -3,6 +3,7 @@
 //  - souloverai.json  (xoundbyte/soul-over-ai — name, YouTube UC id, Spotify id, disclosure)
 //  - surasshu.json    (Blocktube backup — YouTube UC ids, name in preceding comment)
 //  - cevval.txt       (uBlock filter list — YouTube UC ids in rules)
+//  - cennoxx.csv      (CennoxX/spotify-ai-blocker — "artist,id" CSV, name + Spotify id)
 //  - eyewave.txt      (eye-wave/spotify-ai-blocklist — Spotify artist URLs, one per line)
 // Each entry carries whichever identifiers are known (channelId / spotifyId / name);
 // the extension matches YT Music by channelId+name and Spotify by spotifyId+name.
@@ -64,8 +65,19 @@ for (const id of new Set(cev.match(/UC[\w-]{22}/g) ?? [])) {
   add({ channelId: id, confidence: 'suspected', source: 'cevval' });
 }
 
+const spotifyIdsSoFar = () => new Set([...merged.values()].map((e) => e.spotifyId).filter(Boolean));
+
+// --- cennoxx (Spotify id + name) — before eye-wave so its named entries win the dedup ---
+const cennoxKnown = spotifyIdsSoFar();
+const cen = readFileSync(src('cennoxx.csv'), 'utf8');
+for (const line of cen.split('\n').slice(1)) {
+  const m = line.trim().match(/^(.*),([a-zA-Z0-9]{22})$/);
+  if (!m || cennoxKnown.has(m[2])) continue;
+  add({ name: m[1].trim() || null, spotifyId: m[2], confidence: 'suspected', source: 'cennoxx' });
+}
+
 // --- eye-wave (Spotify only) — dedup against Spotify ids already merged in ---
-const knownSpotify = new Set([...merged.values()].map((e) => e.spotifyId).filter(Boolean));
+const knownSpotify = spotifyIdsSoFar();
 const eye = readFileSync(src('eyewave.txt'), 'utf8');
 for (const id of new Set(eye.match(/artist\/([a-zA-Z0-9]{22})/g)?.map((m) => m.split('/')[1]) ?? [])) {
   if (knownSpotify.has(id)) continue;
