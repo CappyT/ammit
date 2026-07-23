@@ -297,6 +297,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'sync-now') {
+    // The sync button means "talk to the backend now": drain the report queue
+    // too, don't make contributions wait for the hourly alarm.
+    flushReports();
     syncBlocklist().then(sendResponse);
     return true;
   }
