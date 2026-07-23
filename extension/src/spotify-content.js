@@ -88,6 +88,25 @@ function matchOne({ spotifyId, name }) {
   return (spotifyId && state.bySpotifyId.get(spotifyId)) || state.byName.get(norm(name)) || null;
 }
 
+// A clearly-human artist never collabs with an AI act — axiom, so a credited
+// artist we're confident is human clears the whole track: a blocklist/AI hit
+// on their collaborator is a homonym or false positive. Confidence =
+// whitelisted, heuristic 'human' verdict, or a MusicBrainz exact-name entry
+// (the curated index AI slop is reliably absent from — the scorer's own +3
+// signal, inverted). Solo tracks are out of scope: an artist never vouches
+// for themselves, and neither does a blocklisted or AI-scored collaborator.
+function clearlyHuman(artists) {
+  if (artists.length < 2) return null;
+  return artists.find((a) => {
+    if (isWhitelisted(a)) return true;
+    if (matchOne(a)) return false;
+    const entry = a.spotifyId ? state.verdictCache[a.spotifyId] : null;
+    if (!entry || entry.fv !== ammit.FEATURES_VERSION) return false;
+    const res = cachedVerdict(entry);
+    return res?.verdict === 'human' || (entry.features?.mbPresent === true && res?.verdict !== 'ai');
+  }) ?? null;
+}
+
 // All credited artists that are blocklisted and not whitelisted. `ban` is true
 // only when the match is on the artist's real spotifyId AND the entry is
 // 'confirmed' (user blocks and human-moderated crowd entries) — a name-only
@@ -95,6 +114,11 @@ function matchOne({ spotifyId, name }) {
 // imported lists, 'community' auto-promoted by report thresholds) must never
 // trigger a permanent ban; they only skip.
 function blockedArtists(cur) {
+  const human = clearlyHuman(cur.artists);
+  if (human) {
+    console.log(TAG, 'track cleared — human collaborator:', human.name);
+    return [];
+  }
   return cur.artists
     .filter((a) => !isWhitelisted(a) && matchOne(a))
     .map((a) => ({ ...a, ban: state.bySpotifyId.get(a.spotifyId ?? '')?.confidence === 'confirmed' }));
@@ -156,10 +180,21 @@ async function onChange() {
     return;
   }
 
-  // Unknown artists → heuristic scorer (async). Evaluate every credited artist.
-  for (const a of cur.artists) {
-    if (a.spotifyId && !isWhitelisted(a)) evaluateArtist(a, cur.trackId);
-  }
+  // Unknown artists → heuristic scorer (async). Every credited artist is
+  // evaluated first, THEN AI verdicts act: with the whole collab scored,
+  // clearlyHuman() can overrule a partner's AI verdict no matter which artist
+  // happened to be evaluated first.
+  (async () => {
+    const verdicts = [];
+    for (const a of cur.artists) {
+      if (!a.spotifyId || isWhitelisted(a)) continue;
+      const v = await evaluateArtist(a);
+      if (v) verdicts.push({ artist: a, ...v });
+    }
+    for (const v of verdicts) {
+      if (v.res.verdict === 'ai') actOnAiVerdict(v.artist, v.res, cur.trackId, v.fresh);
+    }
+  })();
   refreshWidget();
 }
 
@@ -209,24 +244,35 @@ const cachedVerdict = (entry) =>
 
 // Heuristic verdict acts on the artist's own (real) spotifyId → bannable.
 function actOnAiVerdict(artist, res, trackId, fresh) {
+  // A clearly-human collaborator on the still-playing track overrules the AI
+  // verdict (see clearlyHuman) — no nuke, no suspect toast.
+  const now = getCurrent();
+  if (now?.artists.some((a) => a.spotifyId === artist.spotifyId)) {
+    const human = clearlyHuman(now.artists);
+    if (human) {
+      console.log(TAG, 'AI verdict on', artist.name, 'overruled — human collaborator:', human.name);
+      return;
+    }
+  }
   if (state.heuristicAuto) nuke([{ ...artist, ban: true }], trackId);
   else if (fresh) toast(chrome.i18n.getMessage('toastSuspect', [artist.name, String(res.score)]));
 }
 
-async function evaluateArtist(artist, trackId) {
+// Scores one artist (cache-first) and returns { res, fresh } — fresh = newly
+// computed, not from cache — or null when no verdict is available (inflight in
+// another tab, extraction failed). Deliberately does NOT act on the verdict:
+// the caller acts only after the whole collab is scored.
+async function evaluateArtist(artist) {
   const cid = artist.spotifyId;
   const cached = cachedVerdict(state.verdictCache[cid]);
-  if (cached) {
-    if (cached.verdict === 'ai') actOnAiVerdict(artist, cached, trackId, false);
-    return;
-  }
-  if (state.inflight.has(cid)) return;
+  if (cached) return { res: cached, fresh: false };
+  if (state.inflight.has(cid)) return null;
   state.inflight.add(cid);
   try {
     const features = await bridge('features', cid);
     if (features?._err || features?.ok === false) {
       console.log(TAG, 'features failed for', artist.name, features?._err ?? features?.reason);
-      return;
+      return null;
     }
     features.mbPresent = await chrome.runtime.sendMessage({ type: 'mb-lookup', name: features.name ?? artist.name });
     const res = ammit.scoreFeatures(features, state.aiThreshold);
@@ -238,9 +284,10 @@ async function evaluateArtist(artist, trackId) {
     chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
 
     refreshWidget();
-    if (res.verdict === 'ai') actOnAiVerdict(artist, res, trackId, true);
+    return { res, fresh: true };
   } catch (e) {
     console.warn(TAG, 'heuristic failed for', artist.name, String(e));
+    return null;
   } finally {
     state.inflight.delete(cid);
   }
@@ -255,15 +302,22 @@ function refreshWidget() {
   let verdict = 'pending', score = null;
   if (!state.enabled) verdict = 'disabled';
   else if (cur) {
-    const blocked = cur.artists.find((a) => matchOne(a) && !isWhitelisted(a));
+    const human = clearlyHuman(cur.artists);
+    const blocked = human ? null : cur.artists.find((a) => matchOne(a) && !isWhitelisted(a));
     if (blocked) verdict = 'blocklist';
+    else if (human) verdict = isWhitelisted(human) ? 'whitelisted' : 'human';
     else if (p && isWhitelisted(p)) verdict = 'whitelisted';
     else if (p?.spotifyId) {
       const res = cachedVerdict(state.verdictCache[p.spotifyId]);
       if (res) { verdict = res.verdict; score = res.score; }
     }
   }
-  ammitWidget.update({ artist: p?.name ?? null, verdict, score });
+  ammitWidget.update({
+    artist: p?.name ?? null,
+    verdict,
+    score,
+    url: p?.spotifyId ? `https://open.spotify.com/artist/${p.spotifyId}` : null,
+  });
 }
 
 const widgetEvidence = (p) => {
@@ -338,8 +392,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const primary = cur?.artists?.[0] ?? null;
   let verdictInfo = null;
   if (primary) {
-    const blocked = cur.artists.find((a) => matchOne(a) && !isWhitelisted(a));
+    const human = clearlyHuman(cur.artists);
+    const blocked = human ? null : cur.artists.find((a) => matchOne(a) && !isWhitelisted(a));
     if (blocked) verdictInfo = { verdict: 'blocklist' };
+    else if (human) verdictInfo = { verdict: isWhitelisted(human) ? 'whitelisted' : 'human' };
     else if (isWhitelisted(primary)) verdictInfo = { verdict: 'whitelisted' };
     else if (primary.spotifyId) {
       const res = cachedVerdict(state.verdictCache[primary.spotifyId]);

@@ -66,23 +66,40 @@ function buildIndex(blocklist, userBlocklist) {
   console.log(TAG, 'index built:', state.byChannelId.size, 'channel ids,', state.byName.size, 'names');
 }
 
+// The byline is "artists • album • year". Credited artists appear as channel
+// anchors OR as plain text (labels and artists without a channel page get no
+// link). Walk child nodes in byline order so unlinked names survive —
+// anchor-only extraction dropped them, leaving e.g. only the featured artist
+// of a collab to be classified. Stop at the first "•": album/year follow.
+function parseBylineArtists(byline) {
+  const artists = [];
+  const pushNames = (text) => {
+    for (const part of text.split(/[,&•]|\s(?:feat\.?|ft\.?|featuring)\s/i)) {
+      const name = part.trim();
+      if (name) artists.push({ name, channelId: null });
+    }
+  };
+  for (const node of byline.childNodes) {
+    if (node.nodeType === Node.ELEMENT_NODE && node.matches('a[href^="channel/"]')) {
+      artists.push({
+        name: node.textContent.trim(),
+        channelId: node.getAttribute('href').match(/channel\/(UC[\w-]+)/)?.[1] ?? null,
+      });
+      continue;
+    }
+    const text = node.textContent ?? '';
+    const cut = text.indexOf('•');
+    pushNames(cut === -1 ? text : text.slice(0, cut));
+    if (cut !== -1) break;
+  }
+  return artists;
+}
+
 function getCurrentTrack() {
   const title = document.querySelector(SEL.title)?.textContent?.trim();
   if (!title) return null;
-
   const byline = document.querySelector(SEL.byline);
-  const artists = [...(byline?.querySelectorAll('a[href^="channel/"]') ?? [])].map((a) => ({
-    name: a.textContent.trim(),
-    channelId: a.getAttribute('href').match(/channel\/(UC[\w-]+)/)?.[1] ?? null,
-  }));
-
-  // Fallback for tracks whose byline has no channel links (e.g. uploads).
-  if (artists.length === 0 && byline) {
-    const name = byline.textContent.split('•')[0]?.trim();
-    if (name) artists.push({ name, channelId: null });
-  }
-
-  return { title, artists };
+  return { title, artists: byline ? parseBylineArtists(byline) : [] };
 }
 
 function isWhitelisted({ name, channelId }) {
@@ -96,7 +113,28 @@ function matchBlocklist({ name, channelId }) {
   return (channelId && state.byChannelId.get(channelId)) || state.byName.get(norm(name)) || null;
 }
 
+// A clearly-human artist never collabs with an AI act — axiom, so a credited
+// artist we're confident is human clears the whole track: a blocklist/AI hit
+// on their collaborator is a homonym or false positive. Confidence =
+// whitelisted, heuristic 'human' verdict, or a MusicBrainz exact-name entry
+// (the curated index AI slop is reliably absent from — the scorer's own +3
+// signal, inverted). Solo tracks are out of scope: an artist never vouches
+// for themselves, and neither does a blocklisted or AI-scored collaborator.
+function clearlyHuman(artists) {
+  if (artists.length < 2) return null;
+  return artists.find((a) => {
+    if (isWhitelisted(a)) return true;
+    if (matchBlocklist(a)) return false;
+    const entry = a.channelId ? state.verdictCache[a.channelId] : null;
+    if (!entry || entry.fv !== ammit.FEATURES_VERSION) return false;
+    const res = cachedVerdict(entry);
+    return res?.verdict === 'human' || (entry.features?.mbPresent === true && res?.verdict !== 'ai');
+  }) ?? null;
+}
+
 function verdict(track) {
+  const human = clearlyHuman(track.artists);
+  if (human) return { blocked: false, clearedBy: human };
   for (const artist of track.artists) {
     if (isWhitelisted(artist)) continue;
     const hit = matchBlocklist(artist);
@@ -202,6 +240,7 @@ async function onPossibleTrackChange() {
     console.log(TAG, 'now playing:', JSON.stringify(t2), 'like-status:', likeStatus);
 
     const v = verdict(t2);
+    if (v.clearedBy) console.log(TAG, 'track cleared — human collaborator:', v.clearedBy.name);
     if (v.blocked) {
       console.log(TAG, 'BLOCKED artist:', v.artist.name, '→', state.actionFull ? 'dislike + skip' : 'skip');
       refreshWidget();
@@ -209,9 +248,21 @@ async function onPossibleTrackChange() {
       return;
     }
 
-    // Unknown artist → heuristic scorer (async; nuke() re-verifies the track).
-    const primary = t2.artists.find((a) => a.channelId);
-    if (primary && !isWhitelisted(primary)) evaluateArtist(primary, key);
+    // Unknown artists → heuristic scorer (async; nuke() re-verifies the track).
+    // Every channel-linked artist is evaluated first, THEN AI verdicts act:
+    // with the whole collab scored, clearlyHuman() can overrule a partner's AI
+    // verdict no matter which artist happened to be evaluated first.
+    (async () => {
+      const verdicts = [];
+      for (const a of t2.artists) {
+        if (!a.channelId || isWhitelisted(a)) continue;
+        const v = await evaluateArtist(a);
+        if (v) verdicts.push({ artist: a, ...v });
+      }
+      for (const v of verdicts) {
+        if (v.res.verdict === 'ai') actOnAiVerdict(v.artist, v.res, key, v.fresh);
+      }
+    })();
     refreshWidget();
   } finally {
     evaluating = false;
@@ -227,6 +278,16 @@ const cachedVerdict = (entry) =>
     : null;
 
 function actOnAiVerdict(artist, res, expectedKey, fresh) {
+  // A clearly-human collaborator on the still-playing track overrules the AI
+  // verdict (see clearlyHuman) — no nuke, no suspect toast.
+  const now = getCurrentTrack();
+  if (now && trackKey(now) === expectedKey) {
+    const human = clearlyHuman(now.artists);
+    if (human) {
+      console.log(TAG, 'AI verdict on', artist.name, 'overruled — human collaborator:', human.name);
+      return;
+    }
+  }
   if (state.heuristicAuto) {
     console.log(TAG, 'HEURISTIC block:', artist.name, 'score', res.score);
     nuke(artist.name, expectedKey);
@@ -236,14 +297,15 @@ function actOnAiVerdict(artist, res, expectedKey, fresh) {
   }
 }
 
-async function evaluateArtist(artist, expectedKey) {
+// Scores one artist (cache-first) and returns { res, fresh } — fresh = newly
+// computed, not from cache — or null when no verdict is available (inflight in
+// another tab, extraction failed). Deliberately does NOT act on the verdict:
+// the caller acts only after the whole collab is scored.
+async function evaluateArtist(artist) {
   const cid = artist.channelId;
   const cached = cachedVerdict(state.verdictCache[cid]);
-  if (cached) {
-    if (cached.verdict === 'ai') actOnAiVerdict(artist, cached, expectedKey, false);
-    return;
-  }
-  if (state.inflight.has(cid)) return;
+  if (cached) return { res: cached, fresh: false };
+  if (state.inflight.has(cid)) return null;
   state.inflight.add(cid);
   try {
     const features = await ammit.extractFeatures(cid);
@@ -261,33 +323,63 @@ async function evaluateArtist(artist, expectedKey) {
     chrome.runtime.sendMessage({ type: 'cache-verdict', key: cid, entry });
 
     refreshWidget();
-    if (res.verdict === 'ai') actOnAiVerdict(artist, res, expectedKey, true);
+    return { res, fresh: true };
   } catch (e) {
     console.warn(TAG, 'heuristic failed for', artist.name, String(e));
+    return null;
   } finally {
     state.inflight.delete(cid);
   }
 }
 
+// The artist the widget/popup should surface, with its verdict. A clearly-
+// human collaborator clears the whole track and is shown as the reason it
+// plays; otherwise a blocklist hit on ANY credited artist wins, then a cached
+// AI verdict on any of them, then the primary artist's own state — so a
+// flagged featured artist is never hidden behind an innocent primary.
+function displayed(track) {
+  const artists = track?.artists ?? [];
+  const primary = artists.find((a) => a.channelId) ?? artists[0] ?? null;
+  if (!primary) return null;
+  const verdictOf = (a) => (a.channelId ? cachedVerdict(state.verdictCache[a.channelId]) : null);
+  const human = clearlyHuman(artists);
+  if (human) {
+    const res = verdictOf(human);
+    return {
+      artist: human,
+      verdict: isWhitelisted(human) ? 'whitelisted' : 'human',
+      score: res?.score ?? null,
+      reasons: res?.reasons ?? null,
+    };
+  }
+  const blocked = artists.find((a) => !isWhitelisted(a) && matchBlocklist(a));
+  if (blocked) return { artist: blocked, verdict: 'blocklist', score: null, reasons: null };
+  const scored = artists
+    .filter((a) => !isWhitelisted(a))
+    .map((a) => ({ artist: a, res: verdictOf(a) }))
+    .filter((s) => s.res);
+  const ai = scored.find((s) => s.res.verdict === 'ai');
+  if (ai) return { artist: ai.artist, verdict: 'ai', score: ai.res.score, reasons: ai.res.reasons };
+  if (isWhitelisted(primary)) return { artist: primary, verdict: 'whitelisted', score: null, reasons: null };
+  const own = scored.find((s) => s.artist === primary);
+  if (own) return { artist: primary, verdict: own.res.verdict, score: own.res.score, reasons: own.res.reasons };
+  return { artist: primary, verdict: 'pending', score: null, reasons: null };
+}
+
 // --- on-page widget (src/widget.js, loaded before this file) ---
-const primaryArtist = () => {
-  const track = getCurrentTrack();
-  return track?.artists?.find((a) => a.channelId) ?? track?.artists?.[0] ?? null;
-};
+const primaryArtist = () => displayed(getCurrentTrack())?.artist ?? null;
 
 function refreshWidget() {
-  const p = primaryArtist();
-  let verdict = 'pending', score = null;
-  if (!state.enabled) verdict = 'disabled';
-  else if (p) {
-    if (isWhitelisted(p)) verdict = 'whitelisted';
-    else if (matchBlocklist(p)) verdict = 'blocklist';
-    else if (p.channelId) {
-      const res = cachedVerdict(state.verdictCache[p.channelId]);
-      if (res) { verdict = res.verdict; score = res.score; }
-    }
-  }
-  ammitWidget.update({ artist: p?.name ?? null, verdict, score });
+  const d = displayed(getCurrentTrack());
+  const a = d?.artist ?? null;
+  ammitWidget.update({
+    artist: a?.name ?? null,
+    verdict: !state.enabled ? 'disabled' : d?.verdict ?? 'pending',
+    score: state.enabled ? d?.score ?? null : null,
+    url: !a ? null : a.channelId
+      ? `https://music.youtube.com/channel/${a.channelId}`
+      : `https://music.youtube.com/search?q=${encodeURIComponent(a.name)}`,
+  });
 }
 
 const widgetEvidence = (p) => {
@@ -339,17 +431,11 @@ async function loadState() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type !== 'get-current') return;
   const track = getCurrentTrack();
-  const primary = track?.artists?.find((a) => a.channelId) ?? track?.artists?.[0] ?? null;
-  let verdictInfo = null;
-  if (primary) {
-    if (isWhitelisted(primary)) verdictInfo = { verdict: 'whitelisted' };
-    else if (matchBlocklist(primary)) verdictInfo = { verdict: 'blocklist' };
-    else if (primary.channelId) {
-      const res = cachedVerdict(state.verdictCache[primary.channelId]);
-      if (res) verdictInfo = { verdict: res.verdict, score: res.score, reasons: res.reasons };
-    }
-  }
-  sendResponse({ track, primary, verdictInfo });
+  const d = displayed(track);
+  const verdictInfo = d && d.verdict !== 'pending'
+    ? { verdict: d.verdict, score: d.score, reasons: d.reasons }
+    : null;
+  sendResponse({ track, primary: d?.artist ?? null, verdictInfo });
 });
 
 chrome.storage.onChanged.addListener(async (changes, area) => {
