@@ -10,11 +10,12 @@ artist-ban (Spotify).
 
 ## How it works — YouTube Music
 
-A content script observes the `ytmusic-player-bar` for track changes, extracts the
-artist name + channel ID from the byline, and matches them against a bundled
-blocklist (O(1) lookup by channel ID and normalized name). On a match it clicks
-dislike (idempotent via the `like-status` attribute), waits 400ms for the feedback
-request to fire, then clicks next.
+A content script observes the `ytmusic-player-bar` for track changes and extracts
+every credited artist from the byline — channel links *and* plain-text names
+(labels and artists without a channel page get no link) — then matches each one
+against a bundled blocklist (O(1) lookup by channel ID and normalized name). On
+a match it clicks dislike (idempotent via the `like-status` attribute), waits
+400ms for the feedback request to fire, then clicks next.
 
 ## How it works — Spotify
 
@@ -44,11 +45,12 @@ real 0.6–2.6) and is not scored — same finding as YT's plays-to-subscribers.
 
 ## Blocklist
 
-3600+ artists compiled from four community sources
+8500+ artists compiled from five community sources
 ([soul-over-ai](https://github.com/xoundbyte/soul-over-ai) — YT + Spotify IDs +
 disclosure, [surasshu's Blocktube list](https://surasshu.com/blocklist-for-ai-music-on-youtube/),
 [CevvalYoutubeAIBlocklist](https://github.com/cevvalkoala/CevvalYoutubeAIBlocklist),
-[eye-wave/spotify-ai-blocklist](https://github.com/eye-wave/spotify-ai-blocklist) —
+[spotify-ai-blocker](https://github.com/CennoxX/spotify-ai-blocker) — names +
+Spotify IDs, [eye-wave/spotify-ai-blocklist](https://github.com/eye-wave/spotify-ai-blocklist) —
 Spotify IDs), with per-entry confidence (`confirmed` = self-disclosed/press-
 confirmed, `suspected` = community-listed) and whichever of `channelId` /
 `spotifyId` / `name` each source provides. Rebuild with:
@@ -60,6 +62,13 @@ node tools/build-blocklist.mjs
 User data lives in separate storage keys (`userBlocklist`, `whitelist`) and survives
 blocklist rebuilds.
 
+One axiom tempers all matching, on both platforms: **a clearly-human artist
+never collabs with an AI act**. If any credited artist of a multi-artist track
+is whitelisted, heuristically verified human, or present in MusicBrainz (and
+not itself blocklisted/AI-scored), the whole track is cleared — a blocklist or
+AI hit on their collaborator is treated as a homonym or false positive (labels
+credited as artists were the typical victim).
+
 ### Credits
 
 The bundled blocklist stands on the shoulders of the people who research and
@@ -68,6 +77,7 @@ maintain these community lists — thank you for the hard work:
 - [xoundbyte](https://github.com/xoundbyte) — [soul-over-ai](https://github.com/xoundbyte/soul-over-ai)
 - [surasshu](https://surasshu.com) — [blocklist for AI music on YouTube](https://surasshu.com/blocklist-for-ai-music-on-youtube/)
 - [cevvalkoala](https://github.com/cevvalkoala) — [CevvalYoutubeAIBlocklist](https://github.com/cevvalkoala/CevvalYoutubeAIBlocklist)
+- [CennoxX](https://github.com/CennoxX) — [spotify-ai-blocker](https://github.com/CennoxX/spotify-ai-blocker) (MIT)
 - [eye-wave](https://github.com/eye-wave) — [spotify-ai-blocklist](https://github.com/eye-wave/spotify-ai-blocklist)
 
 ## Development
