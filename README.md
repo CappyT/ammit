@@ -51,9 +51,9 @@ disclosure, [surasshu's Blocktube list](https://surasshu.com/blocklist-for-ai-mu
 [CevvalYoutubeAIBlocklist](https://github.com/cevvalkoala/CevvalYoutubeAIBlocklist),
 [spotify-ai-blocker](https://github.com/CennoxX/spotify-ai-blocker) — names +
 Spotify IDs, [eye-wave/spotify-ai-blocklist](https://github.com/eye-wave/spotify-ai-blocklist) —
-Spotify IDs), with per-entry confidence (`confirmed` = self-disclosed/press-
-confirmed, `suspected` = community-listed) and whichever of `channelId` /
-`spotifyId` / `name` each source provides. Rebuild with:
+Spotify IDs), with per-entry confidence (`confirmed` = curated lists, id-
+anchored; `community` = crowd entries promoted by the backend) and whichever
+of `channelId` / `spotifyId` / `name` each source provides. Rebuild with:
 
 ```sh
 node tools/build-blocklist.mjs
@@ -226,8 +226,9 @@ Extension side: `contribute reports` toggle + report API URL in the popup;
 Block / Not AI (review list, current-track buttons and the on-page badge) also
 submit an anonymous report (artist ids + feature snapshot + random install
 id) carrying the required PoW; the client follows the server's `/v1/config`
-dials (difficulty, sampling). Spotify ban requires `confirmed` confidence —
-`suspected` (imported lists) and `community` (auto-promoted) entries skip only.
+dials (difficulty, sampling). Spotify ban requires `confirmed` confidence and
+an id match — `community` (auto-promoted) entries and name-only matches skip
+only.
 
 ## License
 

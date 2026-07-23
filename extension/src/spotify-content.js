@@ -109,10 +109,10 @@ function clearlyHuman(artists) {
 
 // All credited artists that are blocklisted and not whitelisted. `ban` is true
 // only when the match is on the artist's real spotifyId AND the entry is
-// 'confirmed' (user blocks and human-moderated crowd entries) — a name-only
-// match (possibly a legitimate homonym) or a lower tier ('suspected' from the
-// imported lists, 'community' auto-promoted by report thresholds) must never
-// trigger a permanent ban; they only skip.
+// 'confirmed' (curated lists, user blocks, admin-confirmed crowd entries) — a
+// name-only match (possibly a legitimate homonym) or the 'community' tier
+// (auto-promoted by report thresholds) must never trigger a permanent ban;
+// they only skip.
 function blockedArtists(cur) {
   const human = clearlyHuman(cur.artists);
   if (human) {
