@@ -47,6 +47,18 @@ function sendReport(action, { platform, artistId, name, entry }) {
   });
 }
 
+// Click-through to the artist page (new tab) for manual verification. With no
+// platform id, fall back to a search for the name.
+function artistUrl(p) {
+  if (!p) return null;
+  if (p.channelId) return `https://music.youtube.com/channel/${p.channelId}`;
+  if (p.spotifyId) return `https://open.spotify.com/artist/${p.spotifyId}`;
+  if (!p.name) return null;
+  return platform === 'spotify'
+    ? `https://open.spotify.com/search/${encodeURIComponent(p.name)}`
+    : `https://music.youtube.com/search?q=${encodeURIComponent(p.name)}`;
+}
+
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) return null;
@@ -67,11 +79,14 @@ function renderCurrent() {
   if (!has) return;
   const { track, primary, verdictInfo } = current;
   const v = verdictInfo?.verdict ?? 'pending';
-  $('current-artist').querySelector('span').textContent = primary?.name ?? '?';
+  const artistEl = $('current-artist').querySelector('span');
+  artistEl.textContent = primary?.name ?? '?';
+  artistEl.title = primary?.name ?? ''; // full name on hover (may be truncated)
   const chipEl = $('current-chip');
   chip(chipEl, v, verdictInfo?.score);
-  chipEl.title = (verdictInfo?.reasons ?? []).join('\n');
+  chipEl.title = (verdictInfo?.reasons ?? []).join('\n'); // reasons live on the score chip only
   $('current-title').textContent = track.title;
+  $('current-title').title = track.title;
   $('block').disabled = !primary || v === 'blocklist';
   $('whitelist').disabled = !primary || v === 'whitelisted';
 }
@@ -100,7 +115,12 @@ function renderReview(derived) {
     const platformTag = document.createElement('small');
     platformTag.textContent = entry.platform === 'sp' ? 'Spotify' : 'YT Music';
     name.append(platformTag);
-    name.title = res.reasons.join('\n');
+    name.title = entry.name ?? key; // full name on hover; reasons live on the score chip
+    name.addEventListener('click', () => chrome.tabs.create({
+      url: entry.platform === 'sp'
+        ? `https://open.spotify.com/artist/${key}`
+        : `https://music.youtube.com/channel/${key}`,
+    }));
     const ban = document.createElement('button');
     ban.className = 'btn danger';
     ban.textContent = t('blockArtist');
@@ -186,6 +206,11 @@ bindSwitch('enabled', 'enabled');
 bindSwitch('heuristic-auto', 'heuristicAuto');
 bindSwitch('action-full', 'actionFull');
 bindSwitch('contribute', 'contribute');
+
+$('current-artist').querySelector('span').addEventListener('click', () => {
+  const url = artistUrl(current?.primary);
+  if (url) chrome.tabs.create({ url });
+});
 
 $('threshold').addEventListener('input', (e) => { $('threshold-val').textContent = e.target.value; });
 $('threshold').addEventListener('change', async (e) => {

@@ -44,7 +44,8 @@
     .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; }
 
     #current-artist { font-weight: 650; font-size: 14px; display: flex; align-items: center; gap: 8px; }
-    #current-artist span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #current-artist span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    #current-artist span:first-child:hover, .review-row .name:hover { text-decoration: underline; }
     #current-title { color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #current-empty { color: var(--muted); }
 
@@ -64,7 +65,7 @@
 
     .review-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px;
                   background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 6px; }
-    .review-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .review-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
     .review-row .name small { color: var(--muted); }
     .review-row button.btn { flex: none; padding: 3px 9px; font-size: 11.5px; border-radius: 7px; }
 

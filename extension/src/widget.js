@@ -28,7 +28,7 @@ var ammitWidget = (() => {
 
   let root, btn, panel, nameEl, chipEl, blockBtn, notAiBtn;
   let handlers = {};
-  let state = { artist: null, verdict: 'pending', score: null };
+  let state = { artist: null, verdict: 'pending', score: null, url: null };
 
   function el(tag, css, parent) {
     const e = document.createElement(tag);
@@ -51,6 +51,10 @@ var ammitWidget = (() => {
     }, root);
     const head = el('div', { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }, panel);
     nameEl = el('div', { fontWeight: '600', flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, head);
+    // Click-through to the artist page (new tab) for manual verification.
+    nameEl.addEventListener('click', () => { if (state.url) window.open(state.url, '_blank'); });
+    nameEl.addEventListener('mouseenter', () => { if (state.url) nameEl.style.textDecoration = 'underline'; });
+    nameEl.addEventListener('mouseleave', () => (nameEl.style.textDecoration = 'none'));
     chipEl = el('span', { fontSize: '11px', padding: '1px 8px', borderRadius: '999px', whiteSpace: 'nowrap' }, head);
     const row = el('div', { display: 'flex', gap: '6px' }, panel);
     const mkBtn = (label, color) => {
@@ -99,6 +103,7 @@ var ammitWidget = (() => {
     btn.style.borderColor = color;
     nameEl.textContent = state.artist ?? '';
     nameEl.title = state.artist ?? '';
+    nameEl.style.cursor = state.url ? 'pointer' : 'default';
     chipEl.textContent = msg('verdict_' + state.verdict) + (state.score != null ? ` · ${state.score}` : '');
     chipEl.style.background = color + '26'; // 15% alpha
     chipEl.style.color = color;
@@ -114,7 +119,8 @@ var ammitWidget = (() => {
     if (!root) build(opts.bottom ?? '84px');
   }
 
-  // ammitWidget.update({ artist, verdict, score }) — hides itself with no artist.
+  // ammitWidget.update({ artist, verdict, score, url }) — hides itself with no
+  // artist; url makes the panel name a click-through to the artist page.
   function update(s) {
     if (!root) return;
     state = { ...state, ...s };
